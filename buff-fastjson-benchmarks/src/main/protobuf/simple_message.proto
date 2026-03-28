@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package io.suboptimal.buffjson.proto;
+
+option java_package = "io.suboptimal.buffjson.proto";
+option java_outer_classname = "SimpleMessageProto";
+option java_multiple_files = true;
+
+enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_ACTIVE = 1;
+    STATUS_INACTIVE = 2;
+}
+
+message SimpleMessage {
+    string name = 1;
+    int32 id = 2;
+    int64 timestamp_millis = 3;
+    double score = 4;
+    bool active = 5;
+    Status status = 6;
+}
