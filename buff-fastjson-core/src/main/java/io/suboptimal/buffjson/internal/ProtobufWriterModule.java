@@ -23,6 +23,7 @@ public final class ProtobufWriterModule implements ObjectWriterModule {
 	private ProtobufWriterModule() {
 	}
 
+	@SuppressWarnings("rawtypes") // ObjectWriterModule declares raw Class
 	@Override
 	public ObjectWriter<?> getObjectWriter(Type objectType, Class objectClass) {
 		if (objectClass != null && Message.class.isAssignableFrom(objectClass)) {

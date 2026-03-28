@@ -48,10 +48,17 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 	}
 
 	void writeMessage(JSONWriter jsonWriter, Message message) {
+		jsonWriter.startObject();
+		writeFields(jsonWriter, message);
+		jsonWriter.endObject();
+	}
+
+	/**
+	 * Writes all non-default fields of a message without the surrounding braces.
+	 */
+	static void writeFields(JSONWriter jsonWriter, Message message) {
 		var schema = MessageSchema.forDescriptor(message.getDescriptorForType());
 		var fields = schema.fields();
-
-		jsonWriter.startObject();
 
 		for (var fieldInfo : fields) {
 			FieldDescriptor fd = fieldInfo.descriptor();
@@ -83,8 +90,6 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				FieldWriter.writeValue(jsonWriter, fd, value);
 			}
 		}
-
-		jsonWriter.endObject();
 	}
 
 	private static boolean isDefaultValue(MessageSchema.FieldInfo fieldInfo, Object value) {

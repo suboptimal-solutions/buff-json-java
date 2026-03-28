@@ -548,6 +548,77 @@ class Proto3JsonConformanceTest {
 	}
 
 	// =========================================================================
+	// Well-known types: Any
+	// =========================================================================
+	@Nested
+	class AnyTests {
+
+		private static final TypeRegistry TYPE_REGISTRY = TypeRegistry.newBuilder().add(TestAllScalars.getDescriptor())
+				.add(Duration.getDescriptor()).add(Timestamp.getDescriptor()).add(TestAny.getDescriptor()).build();
+
+		private static final JsonFormat.Printer ANY_REFERENCE = JsonFormat.printer().usingTypeRegistry(TYPE_REGISTRY)
+				.omittingInsignificantWhitespace();
+
+		private static final Encoder ENCODER = BuffJSON.encoder().withTypeRegistry(TYPE_REGISTRY);
+
+		private void assertAnyMatchesReference(Message message) throws Exception {
+			String expected = ANY_REFERENCE.print(message);
+			String actual = ENCODER.encode(message);
+			assertEquals(expected, actual, "Mismatch for " + message.getDescriptorForType().getFullName());
+		}
+
+		@Test
+		void anyContainingRegularMessage() throws Exception {
+			TestAllScalars inner = TestAllScalars.newBuilder().setOptionalInt32(42).setOptionalString("hello")
+					.setOptionalBool(true).build();
+
+			assertAnyMatchesReference(TestAny.newBuilder().setValue(Any.pack(inner)).build());
+		}
+
+		@Test
+		void anyContainingDuration() throws Exception {
+			Duration inner = Duration.newBuilder().setSeconds(3600).setNanos(500000000).build();
+			assertAnyMatchesReference(TestAny.newBuilder().setValue(Any.pack(inner)).build());
+		}
+
+		@Test
+		void anyContainingTimestamp() throws Exception {
+			Timestamp inner = Timestamp.newBuilder().setSeconds(1711627200).setNanos(123000000).build();
+			assertAnyMatchesReference(TestAny.newBuilder().setValue(Any.pack(inner)).build());
+		}
+
+		@Test
+		void anyContainingAny() throws Exception {
+			TestAllScalars inner = TestAllScalars.newBuilder().setOptionalInt32(1).build();
+			Any wrappedInner = Any.pack(inner);
+			assertAnyMatchesReference(TestAny.newBuilder().setValue(Any.pack(wrappedInner)).build());
+		}
+
+		@Test
+		void emptyAny() throws Exception {
+			assertAnyMatchesReference(TestAny.getDefaultInstance());
+		}
+
+		@Test
+		void anyWithDefaultInnerMessage() throws Exception {
+			assertAnyMatchesReference(
+					TestAny.newBuilder().setValue(Any.pack(TestAllScalars.getDefaultInstance())).build());
+		}
+	}
+
+	// =========================================================================
+	// Well-known types: Empty
+	// =========================================================================
+	@Nested
+	class EmptyTests {
+
+		@Test
+		void emptyMessage() throws Exception {
+			assertMatchesReference(TestEmpty.newBuilder().setValue(Empty.getDefaultInstance()).build());
+		}
+	}
+
+	// =========================================================================
 	// Edge cases: empty messages
 	// =========================================================================
 	@Nested

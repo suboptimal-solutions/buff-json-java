@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package io.suboptimal.buffjson.proto;
 
+import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -161,4 +163,14 @@ message TestOptionalFields {
 message TestCustomJsonName {
     int32 value = 1 [json_name = "@value"];
     string name = 2 [json_name = "Name"];
+}
+
+// Any type
+message TestAny {
+    google.protobuf.Any value = 1;
+}
+
+// Empty type
+message TestEmpty {
+    google.protobuf.Empty value = 1;
 }

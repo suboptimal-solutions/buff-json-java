@@ -9,9 +9,15 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.alibaba.fastjson2.JSONWriter;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
+import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
+import com.google.protobuf.TypeRegistry;
+
+import io.suboptimal.buffjson.BuffJSON;
 
 /**
  * Specialized JSON serialization for protobuf
@@ -41,7 +47,7 @@ import com.google.protobuf.Message;
  */
 public final class WellKnownTypes {
 
-	private static final Set<String> WELL_KNOWN_TYPE_NAMES = Set.of("google.protobuf.Timestamp",
+	private static final Set<String> WELL_KNOWN_TYPE_NAMES = Set.of("google.protobuf.Any", "google.protobuf.Timestamp",
 			"google.protobuf.Duration", "google.protobuf.FieldMask", "google.protobuf.Struct", "google.protobuf.Value",
 			"google.protobuf.ListValue", "google.protobuf.DoubleValue", "google.protobuf.FloatValue",
 			"google.protobuf.Int64Value", "google.protobuf.UInt64Value", "google.protobuf.Int32Value",
@@ -69,6 +75,7 @@ public final class WellKnownTypes {
 	public static void write(JSONWriter jsonWriter, Message message) {
 		var descriptor = message.getDescriptorForType();
 		switch (descriptor.getFullName()) {
+			case "google.protobuf.Any" -> writeAny(jsonWriter, message);
 			case "google.protobuf.Timestamp" -> writeTimestamp(jsonWriter, message);
 			case "google.protobuf.Duration" -> writeDuration(jsonWriter, message);
 			case "google.protobuf.FieldMask" -> writeFieldMask(jsonWriter, message);
@@ -81,6 +88,60 @@ public final class WellKnownTypes {
 				writeWrapper(jsonWriter, message);
 			default -> throw new IllegalArgumentException("Unknown well-known type: " + descriptor.getFullName());
 		}
+	}
+
+	private static void writeAny(JSONWriter jsonWriter, Message message) {
+		var fields = getFields(message, "type_url", "value");
+		String typeUrl = (String) message.getField(fields[0]);
+		ByteString content = (ByteString) message.getField(fields[1]);
+
+		// Default Any (empty type_url and value) → empty object
+		if (typeUrl.isEmpty() && content.isEmpty()) {
+			jsonWriter.startObject();
+			jsonWriter.endObject();
+			return;
+		}
+
+		TypeRegistry registry = BuffJSON.ACTIVE_REGISTRY.get();
+		if (registry == null) {
+			throw new IllegalStateException("Cannot serialize google.protobuf.Any without a TypeRegistry. "
+					+ "Use BuffJSON.encoder().withTypeRegistry(registry).encode(message).");
+		}
+
+		Descriptor type;
+		try {
+			type = registry.getDescriptorForTypeUrl(typeUrl);
+		} catch (InvalidProtocolBufferException e) {
+			throw new IllegalStateException("Invalid type URL in Any: " + typeUrl, e);
+		}
+		if (type == null) {
+			throw new IllegalStateException("Cannot find type for url: " + typeUrl
+					+ ". Register it via TypeRegistry.newBuilder().add(descriptor).build().");
+		}
+
+		Message contentMessage;
+		try {
+			contentMessage = DynamicMessage.parseFrom(type, content);
+		} catch (InvalidProtocolBufferException e) {
+			throw new IllegalStateException("Failed to parse Any content for type: " + typeUrl, e);
+		}
+
+		jsonWriter.startObject();
+		jsonWriter.writeName("@type");
+		jsonWriter.writeColon();
+		jsonWriter.writeString(typeUrl);
+
+		if (isWellKnownType(type)) {
+			// WKT packed in Any: {"@type": "...", "value": <wkt-json>}
+			jsonWriter.writeName("value");
+			jsonWriter.writeColon();
+			write(jsonWriter, contentMessage);
+		} else {
+			// Regular message: {"@type": "...", ...fields...}
+			ProtobufMessageWriter.writeFields(jsonWriter, contentMessage);
+		}
+
+		jsonWriter.endObject();
 	}
 
 	private static void writeTimestamp(JSONWriter jsonWriter, Message message) {
