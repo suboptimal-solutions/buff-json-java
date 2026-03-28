@@ -146,8 +146,7 @@ public final class FieldWriter {
 	 * proto3 JSON (including numeric and boolean keys). Empty maps should be
 	 * skipped by the caller.
 	 */
-	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor fd, List<?> entries) {
-		var valueDescriptor = fd.getMessageType().findFieldByName("value");
+	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries) {
 		jsonWriter.startObject();
 		for (Object entry : entries) {
 			MapEntry<?, ?> mapEntry = (MapEntry<?, ?>) entry;

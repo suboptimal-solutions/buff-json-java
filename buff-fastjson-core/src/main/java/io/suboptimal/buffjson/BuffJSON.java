@@ -62,6 +62,6 @@ public final class BuffJSON {
 
 	/** Creates a new {@link Encoder} for configuring serialization options. */
 	public static Encoder encoder() {
-		return new Encoder(null);
+		return DEFAULT_ENCODER;
 	}
 }

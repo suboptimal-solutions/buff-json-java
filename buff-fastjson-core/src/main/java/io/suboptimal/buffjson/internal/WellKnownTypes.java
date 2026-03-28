@@ -259,9 +259,18 @@ public final class WellKnownTypes {
 	/**
 	 * Looks up and caches field descriptors for a well-known type message by name.
 	 * Avoids repeated {@code findFieldByName()} calls on the hot path.
+	 *
+	 * <p>
+	 * Each WKT Descriptor must always be called with the same {@code names} — the
+	 * cache is keyed by Descriptor alone.
 	 */
 	private static FieldDescriptor[] getFields(Message message, String... names) {
 		var desc = message.getDescriptorForType();
+		// Fast path: avoid varargs-driven computeIfAbsent on cache hit
+		var cached = WKT_FIELD_CACHE.get(desc);
+		if (cached != null) {
+			return cached;
+		}
 		return WKT_FIELD_CACHE.computeIfAbsent(desc, d -> {
 			FieldDescriptor[] result = new FieldDescriptor[names.length];
 			for (int i = 0; i < names.length; i++) {

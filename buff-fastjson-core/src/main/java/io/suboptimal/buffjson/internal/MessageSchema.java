@@ -58,6 +58,7 @@ public final class MessageSchema {
 		private final boolean isRepeated;
 		private final boolean isMapField;
 		private final boolean hasPresence;
+		private final FieldDescriptor mapValueDescriptor;
 
 		FieldInfo(FieldDescriptor fd) {
 			this.descriptor = fd;
@@ -66,6 +67,7 @@ public final class MessageSchema {
 			this.isRepeated = fd.isRepeated();
 			this.isMapField = fd.isMapField();
 			this.hasPresence = fd.hasPresence();
+			this.mapValueDescriptor = fd.isMapField() ? fd.getMessageType().findFieldByName("value") : null;
 		}
 
 		public FieldDescriptor descriptor() {
@@ -90,6 +92,10 @@ public final class MessageSchema {
 
 		public boolean hasPresence() {
 			return hasPresence;
+		}
+
+		public FieldDescriptor mapValueDescriptor() {
+			return mapValueDescriptor;
 		}
 	}
 }

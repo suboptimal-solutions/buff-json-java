@@ -69,7 +69,7 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 					continue;
 				jsonWriter.writeName(fieldInfo.jsonName());
 				jsonWriter.writeColon();
-				FieldWriter.writeMap(jsonWriter, fd, entries);
+				FieldWriter.writeMap(jsonWriter, fieldInfo.mapValueDescriptor(), entries);
 			} else if (fieldInfo.isRepeated()) {
 				List<?> values = (List<?>) message.getField(fd);
 				if (values.isEmpty())
