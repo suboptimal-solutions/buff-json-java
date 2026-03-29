@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.suboptimal</groupId>
+        <groupId>io.github.suboptimal-solutions</groupId>
         <artifactId>buff-fastjson-java</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
@@ -26,7 +26,7 @@
             <artifactId>protobuf-java-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.suboptimal</groupId>
+            <groupId>io.github.suboptimal-solutions</groupId>
             <artifactId>buff-fastjson-core</artifactId>
         </dependency>
         <dependency>
@@ -51,7 +51,7 @@
                 <configuration>
                     <plugins>
                         <plugin kind="jvm-maven">
-                            <groupId>io.suboptimal</groupId>
+                            <groupId>io.github.suboptimal-solutions</groupId>
                             <artifactId>buff-fastjson-protoc-plugin</artifactId>
                             <version>${project.version}</version>
                             <mainClass>io.suboptimal.buffjson.protoc.BuffJsonProtocPlugin</mainClass>
