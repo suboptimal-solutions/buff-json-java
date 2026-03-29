@@ -18,8 +18,8 @@ import io.suboptimal.buffjson.proto.BenchAny;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class AnyBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -44,25 +44,23 @@ public class AnyBenchmark {
 		randomAnyTimestamps = BenchmarkData.createRandomBenchAnyWithTimestamp(new Random(43), POOL_SIZE);
 	}
 
-	// ---- Any wrapping scalar message ----
-
 	@Benchmark
-	public String anyScalarCodegen() throws Exception {
+	public String anyScalarCodegen() {
 		return CODEGEN_ENCODER.encode(anyScalar);
 	}
 
 	@Benchmark
-	public String anyScalarCodegenRandom() throws Exception {
+	public String anyScalarCodegenRandom() {
 		return CODEGEN_ENCODER.encode(randomAnyScalars[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String anyScalarGeneric() throws Exception {
+	public String anyScalarGeneric() {
 		return GENERIC_ENCODER.encode(anyScalar);
 	}
 
 	@Benchmark
-	public String anyScalarGenericRandom() throws Exception {
+	public String anyScalarGenericRandom() {
 		return GENERIC_ENCODER.encode(randomAnyScalars[index++ & MASK]);
 	}
 
@@ -76,25 +74,23 @@ public class AnyBenchmark {
 		return PROTO_PRINTER.print(randomAnyScalars[index++ & MASK]);
 	}
 
-	// ---- Any wrapping Timestamp (WKT inside Any) ----
-
 	@Benchmark
-	public String anyTimestampCodegen() throws Exception {
+	public String anyTimestampCodegen() {
 		return CODEGEN_ENCODER.encode(anyTimestamp);
 	}
 
 	@Benchmark
-	public String anyTimestampCodegenRandom() throws Exception {
+	public String anyTimestampCodegenRandom() {
 		return CODEGEN_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String anyTimestampGeneric() throws Exception {
+	public String anyTimestampGeneric() {
 		return GENERIC_ENCODER.encode(anyTimestamp);
 	}
 
 	@Benchmark
-	public String anyTimestampGenericRandom() throws Exception {
+	public String anyTimestampGenericRandom() {
 		return GENERIC_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
 	}
 

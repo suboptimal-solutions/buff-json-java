@@ -62,7 +62,8 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 	 * Uses a generated encoder if one is registered for this message type.
 	 */
 	static void writeFields(JSONWriter jsonWriter, Message message) {
-		if (Boolean.TRUE != BuffJSON.SKIP_GENERATED_ENCODERS.get() && !(message instanceof DynamicMessage)) {
+		if (GeneratedEncoderRegistry.hasEncoders() && Boolean.TRUE != BuffJSON.SKIP_GENERATED_ENCODERS.get()
+				&& !(message instanceof DynamicMessage)) {
 			GeneratedEncoder<Message> encoder = GeneratedEncoderRegistry.get(message.getDescriptorForType());
 			if (encoder != null) {
 				encoder.writeFields(jsonWriter, message);

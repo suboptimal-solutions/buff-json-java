@@ -52,6 +52,18 @@ public final class BuffJsonProtocPlugin {
 			Map<String, String> protoToJavaClass = buildClassNameMap(fileDescriptors);
 			Set<String> filesToGenerate = new HashSet<>(request.getFileToGenerateList());
 
+			// Pre-compute encoder class names so generated encoders can reference each
+			// other directly (bypassing the registry for nested message fields)
+			Map<String, String> protoToEncoderClass = new HashMap<>();
+			for (FileDescriptor fileDesc : fileDescriptors.values()) {
+				if (!filesToGenerate.contains(fileDesc.getName()))
+					continue;
+				String javaPackage = getJavaPackage(fileDesc);
+				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
+					collectEncoderNames(msgDesc, javaPackage, protoToEncoderClass);
+				}
+			}
+
 			List<String> encoderClassNames = new ArrayList<>();
 
 			for (FileDescriptor fileDesc : fileDescriptors.values()) {
@@ -61,7 +73,8 @@ public final class BuffJsonProtocPlugin {
 				String javaPackage = getJavaPackage(fileDesc);
 
 				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
-					generateEncoders(response, msgDesc, javaPackage, protoToJavaClass, encoderClassNames);
+					generateEncoders(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
+							encoderClassNames);
 				}
 			}
 
@@ -77,8 +90,21 @@ public final class BuffJsonProtocPlugin {
 		response.build().writeTo(System.out);
 	}
 
+	private static void collectEncoderNames(Descriptor msgDesc, String javaPackage,
+			Map<String, String> protoToEncoderClass) {
+		if (msgDesc.getOptions().getMapEntry())
+			return;
+		if (WELL_KNOWN_TYPES.contains(msgDesc.getFullName()))
+			return;
+		protoToEncoderClass.put(msgDesc.getFullName(), javaPackage + "." + flatName(msgDesc) + "JsonEncoder");
+		for (Descriptor nested : msgDesc.getNestedTypes()) {
+			collectEncoderNames(nested, javaPackage, protoToEncoderClass);
+		}
+	}
+
 	private static void generateEncoders(CodeGeneratorResponse.Builder response, Descriptor msgDesc, String javaPackage,
-			Map<String, String> protoToJavaClass, List<String> encoderClassNames) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass,
+			List<String> encoderClassNames) {
 
 		if (msgDesc.getOptions().getMapEntry())
 			return;
@@ -90,14 +116,14 @@ public final class BuffJsonProtocPlugin {
 		String encoderFullName = javaPackage + "." + encoderSimpleName;
 
 		String source = EncoderGenerator.generate(msgDesc, javaPackage, encoderSimpleName, messageClassName,
-				protoToJavaClass);
+				protoToJavaClass, protoToEncoderClass);
 
 		String filePath = javaPackage.replace('.', '/') + "/" + encoderSimpleName + ".java";
 		response.addFile(CodeGeneratorResponse.File.newBuilder().setName(filePath).setContent(source).build());
 		encoderClassNames.add(encoderFullName);
 
 		for (Descriptor nested : msgDesc.getNestedTypes()) {
-			generateEncoders(response, nested, javaPackage, protoToJavaClass, encoderClassNames);
+			generateEncoders(response, nested, javaPackage, protoToJavaClass, protoToEncoderClass, encoderClassNames);
 		}
 	}
 

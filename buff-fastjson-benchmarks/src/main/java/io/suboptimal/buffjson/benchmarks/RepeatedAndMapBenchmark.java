@@ -16,8 +16,8 @@ import io.suboptimal.buffjson.proto.BenchRepeatedHeavy;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class RepeatedAndMapBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -39,25 +39,23 @@ public class RepeatedAndMapBenchmark {
 		randomMaps = BenchmarkData.createRandomBenchMapHeavy(new Random(43), POOL_SIZE);
 	}
 
-	// ---- Repeated ----
-
 	@Benchmark
-	public String repeatedCodegen() throws Exception {
+	public String repeatedCodegen() {
 		return BuffJSON.encode(repeated);
 	}
 
 	@Benchmark
-	public String repeatedCodegenRandom() throws Exception {
+	public String repeatedCodegenRandom() {
 		return BuffJSON.encode(randomRepeated[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String repeatedGeneric() throws Exception {
+	public String repeatedGeneric() {
 		return GENERIC_ENCODER.encode(repeated);
 	}
 
 	@Benchmark
-	public String repeatedGenericRandom() throws Exception {
+	public String repeatedGenericRandom() {
 		return GENERIC_ENCODER.encode(randomRepeated[index++ & MASK]);
 	}
 
@@ -71,25 +69,23 @@ public class RepeatedAndMapBenchmark {
 		return PROTO_PRINTER.print(randomRepeated[index++ & MASK]);
 	}
 
-	// ---- Map ----
-
 	@Benchmark
-	public String mapCodegen() throws Exception {
+	public String mapCodegen() {
 		return BuffJSON.encode(map);
 	}
 
 	@Benchmark
-	public String mapCodegenRandom() throws Exception {
+	public String mapCodegenRandom() {
 		return BuffJSON.encode(randomMaps[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String mapGeneric() throws Exception {
+	public String mapGeneric() {
 		return GENERIC_ENCODER.encode(map);
 	}
 
 	@Benchmark
-	public String mapGenericRandom() throws Exception {
+	public String mapGenericRandom() {
 		return GENERIC_ENCODER.encode(randomMaps[index++ & MASK]);
 	}
 

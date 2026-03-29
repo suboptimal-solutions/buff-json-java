@@ -20,7 +20,7 @@ final class EncoderGenerator {
 	}
 
 	static String generate(Descriptor msgDesc, String javaPackage, String encoderSimpleName, String messageClassName,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		StringBuilder sb = new StringBuilder();
 		sb.append("package ").append(javaPackage).append(";\n\n");
@@ -28,6 +28,10 @@ final class EncoderGenerator {
 		sb.append("import io.suboptimal.buffjson.GeneratedEncoder;\n\n");
 		sb.append("public final class ").append(encoderSimpleName);
 		sb.append(" implements GeneratedEncoder<").append(messageClassName).append("> {\n\n");
+
+		// Singleton instance for direct calls from other generated encoders
+		sb.append("    public static final ").append(encoderSimpleName).append(" INSTANCE = new ")
+				.append(encoderSimpleName).append("();\n\n");
 
 		// Name char[] constants for writeNameRaw (works with both UTF-8 and UTF-16
 		// writers)
@@ -73,19 +77,19 @@ final class EncoderGenerator {
 			if (oneofFields.contains(fd))
 				continue;
 			if (fd.isMapField()) {
-				generateMapField(sb, fd, messageClassName, protoToJavaClass);
+				generateMapField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			} else if (fd.isRepeated()) {
-				generateRepeatedField(sb, fd, messageClassName, protoToJavaClass);
+				generateRepeatedField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			} else if (fd.hasPresence()) {
-				generatePresenceField(sb, fd, messageClassName, protoToJavaClass);
+				generatePresenceField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			} else {
-				generateImplicitPresenceField(sb, fd, messageClassName, protoToJavaClass);
+				generateImplicitPresenceField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			}
 		}
 
 		// Oneof fields
 		for (OneofDescriptor oneof : msgDesc.getRealOneofs()) {
-			generateOneof(sb, oneof, messageClassName, protoToJavaClass);
+			generateOneof(sb, oneof, messageClassName, protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("    }\n");
@@ -96,7 +100,7 @@ final class EncoderGenerator {
 	// --- Field code generation ---
 
 	private static void generateImplicitPresenceField(StringBuilder sb, FieldDescriptor fd, String msgClass,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String getter = "message." + getterName(fd) + "()";
 		String constName = "NAME_" + constantName(fd);
@@ -176,13 +180,13 @@ final class EncoderGenerator {
 			case MESSAGE -> {
 				// MESSAGE fields always have presence, so this shouldn't be reached
 				// via implicit presence. Handle as presence field.
-				generatePresenceField(sb, fd, msgClass, protoToJavaClass);
+				generatePresenceField(sb, fd, msgClass, protoToJavaClass, protoToEncoderClass);
 			}
 		}
 	}
 
 	private static void generatePresenceField(StringBuilder sb, FieldDescriptor fd, String msgClass,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String hasGetter = "message." + hasName(fd) + "()";
 		String getter = "message." + getterName(fd) + "()";
@@ -208,14 +212,14 @@ final class EncoderGenerator {
 				writeEnumValue(sb, enumClass, "ev");
 				sb.append("            }\n");
 			}
-			case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass);
+			case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("        }\n");
 	}
 
 	private static void generateRepeatedField(StringBuilder sb, FieldDescriptor fd, String msgClass,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String listGetter = "message." + getterName(fd) + "List()";
 		String constName = "NAME_" + constantName(fd);
@@ -246,7 +250,7 @@ final class EncoderGenerator {
 				sb.append("                    ").append(enumClass).append(" e = values.get(i);\n");
 				sb.append("                    jsonWriter.writeString(e.getValueDescriptor().getName());\n");
 			}
-			case MESSAGE -> writeMessageValue(sb, fd, "values.get(i)", protoToJavaClass);
+			case MESSAGE -> writeMessageValue(sb, fd, "values.get(i)", protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("                }\n");
@@ -256,7 +260,7 @@ final class EncoderGenerator {
 	}
 
 	private static void generateMapField(StringBuilder sb, FieldDescriptor fd, String msgClass,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String mapGetter = "message." + getterName(fd) + "Map()";
 		String constName = "NAME_" + constantName(fd);
@@ -292,7 +296,7 @@ final class EncoderGenerator {
 				sb.append("                    ").append(enumClass).append(" e = entry.getValue();\n");
 				sb.append("                    jsonWriter.writeString(e.getValueDescriptor().getName());\n");
 			}
-			case MESSAGE -> writeMessageValue(sb, valueFd, "entry.getValue()", protoToJavaClass);
+			case MESSAGE -> writeMessageValue(sb, valueFd, "entry.getValue()", protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("                }\n");
@@ -302,10 +306,9 @@ final class EncoderGenerator {
 	}
 
 	private static void generateOneof(StringBuilder sb, OneofDescriptor oneof, String msgClass,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String caseGetter = "message.get" + BuffJsonProtocPlugin.toCamelCase(oneof.getName()) + "Case()";
-		String caseEnum = msgClass + "." + BuffJsonProtocPlugin.toCamelCase(oneof.getName()) + "Case";
 
 		sb.append("        switch (").append(caseGetter).append(") {\n");
 
@@ -334,7 +337,7 @@ final class EncoderGenerator {
 					writeEnumValue(sb, enumClass, "ev");
 					sb.append("                }\n");
 				}
-				case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass);
+				case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass, protoToEncoderClass);
 			}
 
 			sb.append("            }\n");
@@ -394,15 +397,25 @@ final class EncoderGenerator {
 	}
 
 	private static void writeMessageValue(StringBuilder sb, FieldDescriptor fd, String expr,
-			Map<String, String> protoToJavaClass) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 		String fullName = fd.getMessageType().getFullName();
 		if (WELL_KNOWN_TYPES.contains(fullName)) {
 			sb.append("                io.suboptimal.buffjson.internal.WellKnownTypes.write(jsonWriter, ").append(expr)
 					.append(");\n");
 		} else {
-			sb.append(
-					"                io.suboptimal.buffjson.internal.ProtobufMessageWriter.INSTANCE.writeMessage(jsonWriter, ")
-					.append(expr).append(");\n");
+			String encoderClass = protoToEncoderClass.get(fullName);
+			if (encoderClass != null) {
+				// Direct call to the nested type's generated encoder — bypasses registry
+				// lookup, ThreadLocal reads, and instanceof checks
+				sb.append("                jsonWriter.startObject();\n");
+				sb.append("                ").append(encoderClass).append(".INSTANCE.writeFields(jsonWriter, ")
+						.append(expr).append(");\n");
+				sb.append("                jsonWriter.endObject();\n");
+			} else {
+				sb.append(
+						"                io.suboptimal.buffjson.internal.ProtobufMessageWriter.INSTANCE.writeMessage(jsonWriter, ")
+						.append(expr).append(");\n");
+			}
 		}
 	}
 

@@ -15,8 +15,8 @@ import io.suboptimal.buffjson.proto.BenchAllScalars;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class AllScalarsBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -35,22 +35,22 @@ public class AllScalarsBenchmark {
 	}
 
 	@Benchmark
-	public String buffJsonCodegen() throws Exception {
+	public String buffJsonCodegen() {
 		return BuffJSON.encode(message);
 	}
 
 	@Benchmark
-	public String buffJsonCodegenRandom() throws Exception {
+	public String buffJsonCodegenRandom() {
 		return BuffJSON.encode(randomMessages[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String buffJson() throws Exception {
+	public String buffJson() {
 		return GENERIC_ENCODER.encode(message);
 	}
 
 	@Benchmark
-	public String buffJsonRandom() throws Exception {
+	public String buffJsonRandom() {
 		return GENERIC_ENCODER.encode(randomMessages[index++ & MASK]);
 	}
 

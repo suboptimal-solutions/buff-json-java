@@ -18,8 +18,8 @@ import io.suboptimal.buffjson.proto.BenchWrappers;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class WktBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -49,25 +49,23 @@ public class WktBenchmark {
 		randomStructs = BenchmarkData.createRandomBenchStructs(new Random(45), POOL_SIZE);
 	}
 
-	// ---- Timestamp ----
-
 	@Benchmark
-	public String timestampCodegen() throws Exception {
+	public String timestampCodegen() {
 		return BuffJSON.encode(timestamps);
 	}
 
 	@Benchmark
-	public String timestampCodegenRandom() throws Exception {
+	public String timestampCodegenRandom() {
 		return BuffJSON.encode(randomTimestamps[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String timestampGeneric() throws Exception {
+	public String timestampGeneric() {
 		return GENERIC_ENCODER.encode(timestamps);
 	}
 
 	@Benchmark
-	public String timestampGenericRandom() throws Exception {
+	public String timestampGenericRandom() {
 		return GENERIC_ENCODER.encode(randomTimestamps[index++ & MASK]);
 	}
 
@@ -81,25 +79,23 @@ public class WktBenchmark {
 		return PROTO_PRINTER.print(randomTimestamps[index++ & MASK]);
 	}
 
-	// ---- Duration ----
-
 	@Benchmark
-	public String durationCodegen() throws Exception {
+	public String durationCodegen() {
 		return BuffJSON.encode(durations);
 	}
 
 	@Benchmark
-	public String durationCodegenRandom() throws Exception {
+	public String durationCodegenRandom() {
 		return BuffJSON.encode(randomDurations[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String durationGeneric() throws Exception {
+	public String durationGeneric() {
 		return GENERIC_ENCODER.encode(durations);
 	}
 
 	@Benchmark
-	public String durationGenericRandom() throws Exception {
+	public String durationGenericRandom() {
 		return GENERIC_ENCODER.encode(randomDurations[index++ & MASK]);
 	}
 
@@ -113,25 +109,23 @@ public class WktBenchmark {
 		return PROTO_PRINTER.print(randomDurations[index++ & MASK]);
 	}
 
-	// ---- Wrappers ----
-
 	@Benchmark
-	public String wrappersCodegen() throws Exception {
+	public String wrappersCodegen() {
 		return BuffJSON.encode(wrappers);
 	}
 
 	@Benchmark
-	public String wrappersCodegenRandom() throws Exception {
+	public String wrappersCodegenRandom() {
 		return BuffJSON.encode(randomWrappers[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String wrappersGeneric() throws Exception {
+	public String wrappersGeneric() {
 		return GENERIC_ENCODER.encode(wrappers);
 	}
 
 	@Benchmark
-	public String wrappersGenericRandom() throws Exception {
+	public String wrappersGenericRandom() {
 		return GENERIC_ENCODER.encode(randomWrappers[index++ & MASK]);
 	}
 
@@ -145,25 +139,23 @@ public class WktBenchmark {
 		return PROTO_PRINTER.print(randomWrappers[index++ & MASK]);
 	}
 
-	// ---- Struct ----
-
 	@Benchmark
-	public String structCodegen() throws Exception {
+	public String structCodegen() {
 		return BuffJSON.encode(struct);
 	}
 
 	@Benchmark
-	public String structCodegenRandom() throws Exception {
+	public String structCodegenRandom() {
 		return BuffJSON.encode(randomStructs[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String structGeneric() throws Exception {
+	public String structGeneric() {
 		return GENERIC_ENCODER.encode(struct);
 	}
 
 	@Benchmark
-	public String structGenericRandom() throws Exception {
+	public String structGenericRandom() {
 		return GENERIC_ENCODER.encode(randomStructs[index++ & MASK]);
 	}
 

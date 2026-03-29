@@ -37,9 +37,13 @@ RAW_FILE="${REPORTS_DIR}/${TIMESTAMP}-raw.txt"
 JSON_FILE="${REPORTS_DIR}/${TIMESTAMP}-results.json"
 REPORT_FILE="${REPORTS_DIR}/${TIMESTAMP}-report.md"
 
-# Always rebuild to pick up code changes
+# Always clean-rebuild to pick up code changes and regenerate JMH BenchmarkList.
 echo "Building benchmarks..."
 mvn package -pl buff-fastjson-benchmarks -am -q
+if ! mvn package -pl buff-fastjson-benchmarks -am -DskipTests; then
+    echo "ERROR: Maven build failed. Fix compilation errors and retry."
+    exit 1
+fi
 
 mkdir -p "$REPORTS_DIR"
 
@@ -114,10 +118,39 @@ with open(report_file, "w") as f:
         f.write(f"**{jvm_info}**\n")
     f.write(f"**Benchmarks:** {len(results)} methods across {len(groups)} classes\n\n")
 
-    # Per-class analysis with codegen vs generic vs JsonFormat comparison
+    def fmt(m):
+        if m is None:
+            return "-"
+        score_str = f"{m['score']:,.0f}"
+        err = m['error']
+        if isinstance(err, (int, float)) and err == err:  # not NaN
+            return f"{score_str} \u00b1{err:,.0f}"
+        return score_str
+
+    def classify_encoder(name):
+        if "Codegen" in name or name.startswith("buffJsonCodegen"):
+            return "codegen"
+        if "Generic" in name or name == "buffJson" or name == "buffJsonRandom":
+            return "generic"
+        if "JsonFormat" in name or name.startswith("protoJsonFormat"):
+            return "jsonformat"
+        return None
+
+    # Per-class analysis
     for class_name in sorted(groups.keys()):
         methods = groups[class_name]
         f.write(f"## {class_name}\n\n")
+
+        # Check if this is a POJO-only benchmark (no codegen/generic/jsonformat methods)
+        is_pojo = all(classify_encoder(m["method"]) is None for m in methods)
+
+        if is_pojo:
+            f.write("| Benchmark | ops/s |\n")
+            f.write("|---|---:|\n")
+            for m in sorted(methods, key=lambda x: x["method"]):
+                f.write(f"| {m['method']} | {fmt(m)} |\n")
+            f.write("\n")
+            continue
 
         # Group methods into comparable triples
         comparisons = defaultdict(dict)
@@ -126,14 +159,8 @@ with open(report_file, "w") as f:
             is_random = name.endswith("Random")
             data_type = "random" if is_random else "constant"
 
-            # Classify encoder type
-            if "Codegen" in name or name.startswith("buffJsonCodegen"):
-                encoder = "codegen"
-            elif "Generic" in name or name == "buffJson" or name == "buffJsonRandom":
-                encoder = "generic"
-            elif "JsonFormat" in name or name.startswith("protoJsonFormat"):
-                encoder = "jsonformat"
-            else:
+            encoder = classify_encoder(name)
+            if encoder is None:
                 encoder = name
 
             # Extract the message/benchmark prefix
@@ -159,15 +186,6 @@ with open(report_file, "w") as f:
             cg = scores.get("codegen")
             gn = scores.get("generic")
             jf = scores.get("jsonformat")
-
-            def fmt(m):
-                if m is None:
-                    return "-"
-                score_str = f"{m['score']:,.0f}"
-                err = m['error']
-                if isinstance(err, (int, float)) and err == err:  # not NaN
-                    return f"{score_str} \u00b1{err:,.0f}"
-                return score_str
 
             cg_vs_gn = ""
             if cg and gn and gn["score"] > 0:

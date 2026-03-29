@@ -3,23 +3,20 @@ package io.suboptimal.buffjson.benchmarks;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import com.alibaba.fastjson2.JSON;
 import com.google.protobuf.util.JsonFormat;
 
 import org.openjdk.jmh.annotations.*;
 
 import io.suboptimal.buffjson.BuffJSON;
 import io.suboptimal.buffjson.Encoder;
-import io.suboptimal.buffjson.benchmarks.pojo.SimpleMessagePojo;
-import io.suboptimal.buffjson.benchmarks.pojo.SimpleMessagePojoCompiled;
 import io.suboptimal.buffjson.proto.SimpleMessage;
 
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class SimpleMessageBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -29,35 +26,31 @@ public class SimpleMessageBenchmark {
 
 	private SimpleMessage message;
 	private SimpleMessage[] randomMessages;
-	private SimpleMessagePojo pojo;
-	private SimpleMessagePojoCompiled pojoCompiled;
 	private int index;
 
 	@Setup
 	public void setup() {
 		message = BenchmarkData.createSimpleMessage();
 		randomMessages = BenchmarkData.createRandomSimpleMessages(new Random(42), POOL_SIZE);
-		pojo = BenchmarkData.createSimpleMessagePojo();
-		pojoCompiled = BenchmarkData.createSimpleMessagePojoCompiled();
 	}
 
 	@Benchmark
-	public String buffJsonCodegen() throws Exception {
+	public String buffJsonCodegen() {
 		return BuffJSON.encode(message);
 	}
 
 	@Benchmark
-	public String buffJsonCodegenRandom() throws Exception {
+	public String buffJsonCodegenRandom() {
 		return BuffJSON.encode(randomMessages[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String buffJson() throws Exception {
+	public String buffJson() {
 		return GENERIC_ENCODER.encode(message);
 	}
 
 	@Benchmark
-	public String buffJsonRandom() throws Exception {
+	public String buffJsonRandom() {
 		return GENERIC_ENCODER.encode(randomMessages[index++ & MASK]);
 	}
 
@@ -69,15 +62,5 @@ public class SimpleMessageBenchmark {
 	@Benchmark
 	public String protoJsonFormatRandom() throws Exception {
 		return PROTO_PRINTER.print(randomMessages[index++ & MASK]);
-	}
-
-	@Benchmark
-	public String fastjson2Pojo() {
-		return JSON.toJSONString(pojo);
-	}
-
-	@Benchmark
-	public String fastjson2PojoCompiled() {
-		return JSON.toJSONString(pojoCompiled);
 	}
 }

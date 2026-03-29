@@ -16,8 +16,8 @@ import io.suboptimal.buffjson.proto.BenchStringHeavy;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(2)
-@State(Scope.Thread)
+@Fork(1)
+@State(Scope.Benchmark)
 public class DeepNestingAndStringBenchmark {
 
 	private static final int POOL_SIZE = 1024;
@@ -39,25 +39,23 @@ public class DeepNestingAndStringBenchmark {
 		randomStringHeavy = BenchmarkData.createRandomBenchStringHeavy(new Random(43), POOL_SIZE);
 	}
 
-	// ---- Deep nesting ----
-
 	@Benchmark
-	public String deepNestingCodegen() throws Exception {
+	public String deepNestingCodegen() {
 		return BuffJSON.encode(deepNesting);
 	}
 
 	@Benchmark
-	public String deepNestingCodegenRandom() throws Exception {
+	public String deepNestingCodegenRandom() {
 		return BuffJSON.encode(randomDeepNesting[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String deepNestingGeneric() throws Exception {
+	public String deepNestingGeneric() {
 		return GENERIC_ENCODER.encode(deepNesting);
 	}
 
 	@Benchmark
-	public String deepNestingGenericRandom() throws Exception {
+	public String deepNestingGenericRandom() {
 		return GENERIC_ENCODER.encode(randomDeepNesting[index++ & MASK]);
 	}
 
@@ -71,25 +69,23 @@ public class DeepNestingAndStringBenchmark {
 		return PROTO_PRINTER.print(randomDeepNesting[index++ & MASK]);
 	}
 
-	// ---- String heavy ----
-
 	@Benchmark
-	public String stringHeavyCodegen() throws Exception {
+	public String stringHeavyCodegen() {
 		return BuffJSON.encode(stringHeavy);
 	}
 
 	@Benchmark
-	public String stringHeavyCodegenRandom() throws Exception {
+	public String stringHeavyCodegenRandom() {
 		return BuffJSON.encode(randomStringHeavy[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String stringHeavyGeneric() throws Exception {
+	public String stringHeavyGeneric() {
 		return GENERIC_ENCODER.encode(stringHeavy);
 	}
 
 	@Benchmark
-	public String stringHeavyGenericRandom() throws Exception {
+	public String stringHeavyGenericRandom() {
 		return GENERIC_ENCODER.encode(randomStringHeavy[index++ & MASK]);
 	}
 
