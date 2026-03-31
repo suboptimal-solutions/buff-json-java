@@ -1,8 +1,5 @@
 package io.suboptimal.buffjson.benchmarks.pojo;
 
-import com.alibaba.fastjson2.annotation.JSONCompiled;
-
-@JSONCompiled
 public class AddressPojoCompiled {
 
 	private String street;

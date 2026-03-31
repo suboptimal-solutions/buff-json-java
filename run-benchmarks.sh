@@ -3,23 +3,27 @@
 # Run buff-fastjson benchmarks and generate reports.
 #
 # Usage:
-#   ./run-benchmarks.sh                          # run all benchmarks (default: -wi 3 -i 5 -f 2)
-#   ./run-benchmarks.sh -wi 3 -i 5 -f 2         # pass custom JMH options
+#   ./run-benchmarks.sh                          # run regression suite (default)
+#   ./run-benchmarks.sh --full                   # run ALL benchmarks
+#   ./run-benchmarks.sh --full -wi 3 -i 5 -f 2  # full suite with custom JMH options
+#   ./run-benchmarks.sh -wi 3 -i 5 -f 2         # regression suite with custom JMH options
 #
-# Benchmark subsets (pass as regex filter):
-#   ./run-benchmarks.sh "SimpleMessage"          # 6-field scalar message
-#   ./run-benchmarks.sh "ComplexMessage"         # nested/maps/repeated/oneofs/bytes/timestamps
-#   ./run-benchmarks.sh "AllScalars"             # all 15 proto3 scalar types + enum
-#   ./run-benchmarks.sh "WktBenchmark"           # Timestamp, Duration, Wrappers, Struct
-#   ./run-benchmarks.sh "WktBenchmark.timestamp" # Timestamp only
-#   ./run-benchmarks.sh "WktBenchmark.duration"  # Duration only
-#   ./run-benchmarks.sh "WktBenchmark.wrappers"  # all 9 wrapper types
-#   ./run-benchmarks.sh "WktBenchmark.struct"    # Struct/Value/ListValue
-#   ./run-benchmarks.sh "AnyBenchmark"           # Any with scalar message + Any with Timestamp
-#   ./run-benchmarks.sh "RepeatedAndMap"         # 100+ repeated elements, 50+ map entries
-#   ./run-benchmarks.sh "DeepNesting"            # 5-level recursive nesting + string/bytes stress
+# Regression suite (default) — focused set for catching regressions fast:
+#   SimpleMessageBenchmark     — flat 6-field message
+#   ComplexMessageBenchmark    — nested/maps/repeated/oneofs/bytes/timestamps
+#   WktBenchmark               — Timestamp + Struct
+#   RepeatedAndMapBenchmark    — 100+ repeated, 50+ map entries
+#   CeilingBenchmark           — fastjson2 POJO ceiling vs BuffJSON
 #
-# Each benchmark has constant + random data variants and 3 encoders (codegen, generic, JsonFormat).
+# Full suite — adds these on top of regression:
+#   AllScalarsBenchmark        — all 15 proto3 scalar types + enum
+#   AnyBenchmark               — Any with TypeRegistry
+#   DeepNestingAndStringBenchmark — recursive nesting + string/bytes stress
+#
+# Benchmark subsets (pass as regex filter after flags):
+#   ./run-benchmarks.sh "SimpleMessage"
+#   ./run-benchmarks.sh "WktBenchmark.timestamp"
+#   ./run-benchmarks.sh "CeilingBenchmark"
 #
 # Output:
 #   benchmark-reports/<timestamp>-raw.txt      — full JMH console output
@@ -37,20 +41,48 @@ RAW_FILE="${REPORTS_DIR}/${TIMESTAMP}-raw.txt"
 JSON_FILE="${REPORTS_DIR}/${TIMESTAMP}-results.json"
 REPORT_FILE="${REPORTS_DIR}/${TIMESTAMP}-report.md"
 
+# Parse flags
+FULL_MODE=false
+JMH_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--full" ]; then
+        FULL_MODE=true
+    else
+        JMH_ARGS+=("$arg")
+    fi
+done
+
+# Default JMH args if none provided
+if [ ${#JMH_ARGS[@]} -eq 0 ]; then
+    JMH_ARGS=(-wi 3 -i 5 -f 2)
+fi
+
+# Regression suite filter (default unless --full)
+if [ "$FULL_MODE" = false ]; then
+    # Check if user already specified a regex filter (non-flag argument)
+    HAS_FILTER=false
+    for arg in "${JMH_ARGS[@]}"; do
+        if [[ ! "$arg" =~ ^- ]] && [[ ! "$arg" =~ ^[0-9]+$ ]]; then
+            HAS_FILTER=true
+            break
+        fi
+    done
+    if [ "$HAS_FILTER" = false ]; then
+        JMH_ARGS=("(SimpleMessage|ComplexMessage|Ceiling|Wkt|RepeatedAndMap)Benchmark" "${JMH_ARGS[@]}")
+    fi
+fi
+
 # Always clean-rebuild to pick up code changes and regenerate JMH BenchmarkList.
 echo "Building benchmarks..."
 mvn package -DskipTests -q
 
 mkdir -p "$REPORTS_DIR"
 
-# Default JMH args if none provided
-if [ $# -eq 0 ]; then
-    JMH_ARGS=(-wi 3 -i 5 -f 2)
+if [ "$FULL_MODE" = true ]; then
+    echo "Running FULL benchmark suite with args: ${JMH_ARGS[*]}"
 else
-    JMH_ARGS=("$@")
+    echo "Running REGRESSION suite with args: ${JMH_ARGS[*]}"
 fi
-
-echo "Running benchmarks with args: ${JMH_ARGS[*]}"
 echo "Raw output:  ${RAW_FILE}"
 echo "JSON results: ${JSON_FILE}"
 echo "Report:      ${REPORT_FILE}"
@@ -124,75 +156,127 @@ with open(report_file, "w") as f:
         return score_str
 
     def classify_encoder(name):
-        if "Codegen" in name or name.startswith("buffJsonCodegen"):
-            return "codegen"
-        if "Generic" in name or name == "buffJson" or name == "buffJsonRandom":
-            return "generic"
-        if "JsonFormat" in name or name.startswith("protoJsonFormat"):
+        if "Compiled" in name or name.startswith("buffJsonCompiled"):
+            return "compiled"
+        if "Runtime" in name or name.startswith("buffJsonRuntime"):
+            return "runtime"
+        if "JsonFormat" in name or name.endswith("JsonFormat"):
             return "jsonformat"
+        if name.startswith("jacksonProtobuf"):
+            return "jackson"
+        if name.endswith("JacksonHubspot"):
+            return "jackson_hubspot"
+        if "fastjson2" in name or name.startswith("fastjson2"):
+            return "fastjson2"
         return None
+
+    def is_ceiling_class(class_name):
+        return class_name == "CeilingBenchmark"
+
 
     # Per-class analysis
     for class_name in sorted(groups.keys()):
         methods = groups[class_name]
         f.write(f"## {class_name}\n\n")
 
-        # Check if this is a POJO-only benchmark (no codegen/generic/jsonformat methods)
-        is_pojo = all(classify_encoder(m["method"]) is None for m in methods)
+        if is_ceiling_class(class_name):
+            # Ceiling benchmark: compare like-for-like (compiled vs compiled, runtime vs runtime)
+            fj2_runtime = None
+            fj2_compiled = None
+            bj_compiled = None
+            bj_runtime = None
+            for m in methods:
+                name = m["method"]
+                if name == "fastjson2Runtime":
+                    fj2_runtime = m
+                elif name == "fastjson2Compiled":
+                    fj2_compiled = m
+                elif name == "buffJsonCompiled":
+                    bj_compiled = m
+                elif name == "buffJsonRuntime":
+                    bj_runtime = m
 
-        if is_pojo:
-            f.write("| Benchmark | ops/s |\n")
-            f.write("|---|---:|\n")
-            for m in sorted(methods, key=lambda x: x["method"]):
-                f.write(f"| {m['method']} | {fmt(m)} |\n")
+            f.write("| | Fastjson2 | BuffJSON | BuffJSON / Fastjson2 |\n")
+            f.write("|---|---:|---:|:---:|\n")
+
+            # Compiled row
+            ratio_c = ""
+            if bj_compiled and fj2_compiled and fj2_compiled["score"] > 0:
+                ratio_c = f"**{bj_compiled['score'] / fj2_compiled['score']:.2f}x**"
+            f.write(f"| compiled | {fmt(fj2_compiled)} | {fmt(bj_compiled)} | {ratio_c} |\n")
+
+            # Runtime row
+            ratio_r = ""
+            if bj_runtime and fj2_runtime and fj2_runtime["score"] > 0:
+                ratio_r = f"**{bj_runtime['score'] / fj2_runtime['score']:.2f}x**"
+            f.write(f"| runtime | {fmt(fj2_runtime)} | {fmt(bj_runtime)} | {ratio_r} |\n")
+
             f.write("\n")
             continue
 
-        # Group methods into comparable triples
+        # Standard benchmark classes: BuffJSON vs JsonFormat, row per mode
         comparisons = defaultdict(dict)
         for m in methods:
             name = m["method"]
-            is_random = name.endswith("Random")
-            data_type = "random" if is_random else "constant"
-
             encoder = classify_encoder(name)
             if encoder is None:
                 encoder = name
 
             # Extract the message/benchmark prefix
             prefix = name
-            for suffix in ["CodegenRandom", "Codegen", "GenericRandom", "Generic",
-                           "JsonFormatRandom", "JsonFormat", "Random"]:
+            for suffix in ["Compiled", "Runtime", "JsonFormat", "Protobuf"]:
                 if prefix.endswith(suffix):
                     prefix = prefix[:-len(suffix)]
                     break
-            if prefix in ("buffJson", "protoJson", "proto", "buffJsonCodegen", "protoJsonFormat"):
+            if prefix in ("buffJson", "protoJson", "proto", "protoJsonFormat", "jackson", "jacksonProtobuf"):
                 prefix = "message"
             if not prefix:
                 prefix = "message"
 
-            key = f"{prefix}_{data_type}"
-            comparisons[key][encoder] = m
+            comparisons[prefix][encoder] = m
 
-        f.write("| Scenario | Codegen | Generic | JsonFormat | Codegen/Generic | Codegen/JsonFormat |\n")
-        f.write("|---|---:|---:|---:|:---:|:---:|\n")
+        # Check if any method in this class has Jackson
+        has_jackson = any(classify_encoder(m["method"]) == "jackson" for m in methods)
+
+        if has_jackson:
+            f.write("| | BuffJSON | JsonFormat | Jackson | BuffJSON / JsonFormat | BuffJSON / Jackson |\n")
+            f.write("|---|---:|---:|---:|:---:|:---:|\n")
+        else:
+            f.write("| | BuffJSON | JsonFormat | BuffJSON / JsonFormat |\n")
+            f.write("|---|---:|---:|:---:|\n")
 
         for key in sorted(comparisons.keys()):
             scores = comparisons[key]
-            cg = scores.get("codegen")
-            gn = scores.get("generic")
+            cp = scores.get("compiled")
+            rt = scores.get("runtime")
             jf = scores.get("jsonformat")
+            jk = scores.get("jackson")
 
-            cg_vs_gn = ""
-            if cg and gn and gn["score"] > 0:
-                cg_vs_gn = f"**{cg['score'] / gn['score']:.1f}x**"
+            label = f"{key} " if key != "message" else ""
 
-            cg_vs_jf = ""
-            if cg and jf and jf["score"] > 0:
-                cg_vs_jf = f"**{cg['score'] / jf['score']:.1f}x**"
+            ratio_c_jf = ""
+            if cp and jf and jf["score"] > 0:
+                ratio_c_jf = f"**{cp['score'] / jf['score']:.1f}x**"
+            ratio_c_jk = ""
+            if cp and jk and jk["score"] > 0:
+                ratio_c_jk = f"**{cp['score'] / jk['score']:.1f}x**"
 
-            label = key.replace("_", " ")
-            f.write(f"| {label} | {fmt(cg)} | {fmt(gn)} | {fmt(jf)} | {cg_vs_gn} | {cg_vs_jf} |\n")
+            if has_jackson:
+                f.write(f"| {label}compiled | {fmt(cp)} | {fmt(jf)} | {fmt(jk)} | {ratio_c_jf} | {ratio_c_jk} |\n")
+            else:
+                f.write(f"| {label}compiled | {fmt(cp)} | {fmt(jf)} | {ratio_c_jf} |\n")
+
+            ratio_r_jf = ""
+            if rt and jf and jf["score"] > 0:
+                ratio_r_jf = f"**{rt['score'] / jf['score']:.1f}x**"
+            ratio_r_jk = ""
+            if rt and jk and jk["score"] > 0:
+                ratio_r_jk = f"**{rt['score'] / jk['score']:.1f}x**"
+
+            if has_jackson:
+                f.write(f"| {label}runtime | {fmt(rt)} | {fmt(jf)} | {fmt(jk)} | {ratio_r_jf} | {ratio_r_jk} |\n")
+            else:
+                f.write(f"| {label}runtime | {fmt(rt)} | {fmt(jf)} | {ratio_r_jf} |\n")
 
         f.write("\n")
 
@@ -201,53 +285,65 @@ with open(report_file, "w") as f:
 
     all_ratios = []
     for class_name in groups:
+        if is_ceiling_class(class_name):
+            continue
         methods = groups[class_name]
-        codegen_const = {m["method"]: m["score"] for m in methods
-                         if ("Codegen" in m["method"] or m["method"] == "buffJsonCodegen")
-                         and not m["method"].endswith("Random")}
-        generic_const = {m["method"]: m["score"] for m in methods
-                         if ("Generic" in m["method"] or m["method"] == "buffJson")
-                         and not m["method"].endswith("Random")}
-        jf_const = {m["method"]: m["score"] for m in methods
-                    if ("JsonFormat" in m["method"] or m["method"] == "protoJsonFormat")
-                    and not m["method"].endswith("Random")}
+        compiled_methods = {m["method"]: m["score"] for m in methods
+                           if "Compiled" in m["method"] or m["method"] == "buffJsonCompiled"}
+        runtime_methods = {m["method"]: m["score"] for m in methods
+                           if "Runtime" in m["method"] or m["method"] == "buffJsonRuntime"}
+        jf_methods = {m["method"]: m["score"] for m in methods
+                      if "JsonFormat" in m["method"] or m["method"] == "protoJsonFormat"}
 
-        for cg_name, cg_score in codegen_const.items():
-            prefix_cg = cg_name.replace("Codegen", "").replace("buffJson", "")
-            entry = {"class": class_name, "method": cg_name, "score": cg_score}
+        for cp_name, cp_score in compiled_methods.items():
+            prefix_cp = cp_name.replace("Compiled", "")
+            entry = {"class": class_name, "method": cp_name, "score": cp_score}
 
-            for gn_name, gn_score in generic_const.items():
-                prefix_gn = gn_name.replace("Generic", "").replace("buffJson", "")
-                if prefix_cg == prefix_gn and gn_score > 0:
-                    entry["codegen_vs_generic"] = cg_score / gn_score
+            for jf_name, jf_score in jf_methods.items():
+                prefix_jf = jf_name.replace("JsonFormat", "")
+                if prefix_cp == prefix_jf and jf_score > 0:
+                    entry["compiled_vs_jsonformat"] = cp_score / jf_score
 
-            for jf_name, jf_score in jf_const.items():
-                prefix_jf = jf_name.replace("JsonFormat", "").replace("protoJson", "").replace("Format", "")
-                if prefix_cg == prefix_jf and jf_score > 0:
-                    entry["codegen_vs_jsonformat"] = cg_score / jf_score
+            for rt_name, rt_score in runtime_methods.items():
+                prefix_rt = rt_name.replace("Runtime", "")
+                for jf_name, jf_score in jf_methods.items():
+                    prefix_jf = jf_name.replace("JsonFormat", "")
+                    if prefix_rt == prefix_jf and jf_score > 0:
+                        entry["runtime_vs_jsonformat"] = rt_score / jf_score
 
-            if "codegen_vs_generic" in entry:
+            if "compiled_vs_jsonformat" in entry:
                 all_ratios.append(entry)
 
     if all_ratios:
-        best_cg = max(all_ratios, key=lambda r: r.get("codegen_vs_generic", 0))
-        worst_cg = min(all_ratios, key=lambda r: r.get("codegen_vs_generic", float("inf")))
-        best_jf = max(all_ratios, key=lambda r: r.get("codegen_vs_jsonformat", 0))
-        worst_jf = min(all_ratios, key=lambda r: r.get("codegen_vs_jsonformat", float("inf")))
+        best_c = max(all_ratios, key=lambda r: r.get("compiled_vs_jsonformat", 0))
+        worst_c = min(all_ratios, key=lambda r: r.get("compiled_vs_jsonformat", float("inf")))
+        best_r = max(all_ratios, key=lambda r: r.get("runtime_vs_jsonformat", 0))
+        worst_r = min(all_ratios, key=lambda r: r.get("runtime_vs_jsonformat", float("inf")))
 
-        f.write(f"- **Best codegen vs generic:** {best_cg['codegen_vs_generic']:.1f}x "
-                f"({best_cg['class']}.{best_cg['method']})\n")
-        f.write(f"- **Smallest codegen vs generic:** {worst_cg['codegen_vs_generic']:.1f}x "
-                f"({worst_cg['class']}.{worst_cg['method']})\n")
-        if "codegen_vs_jsonformat" in best_jf:
-            f.write(f"- **Best codegen vs JsonFormat:** {best_jf['codegen_vs_jsonformat']:.1f}x "
-                    f"({best_jf['class']}.{best_jf['method']})\n")
-        if "codegen_vs_jsonformat" in worst_jf:
-            f.write(f"- **Smallest codegen vs JsonFormat:** {worst_jf['codegen_vs_jsonformat']:.1f}x "
-                    f"({worst_jf['class']}.{worst_jf['method']})\n")
-        f.write("\n")
+        f.write(f"- **Best compiled vs JsonFormat:** {best_c['compiled_vs_jsonformat']:.1f}x "
+                f"({best_c['class']}.{best_c['method']})\n")
+        f.write(f"- **Smallest compiled vs JsonFormat:** {worst_c['compiled_vs_jsonformat']:.1f}x "
+                f"({worst_c['class']}.{worst_c['method']})\n")
+        if "runtime_vs_jsonformat" in best_r:
+            f.write(f"- **Best runtime vs JsonFormat:** {best_r['runtime_vs_jsonformat']:.1f}x "
+                    f"({best_r['class']}.{best_r['method'].replace('Compiled','Runtime')})\n")
+        if "runtime_vs_jsonformat" in worst_r:
+            f.write(f"- **Smallest runtime vs JsonFormat:** {worst_r['runtime_vs_jsonformat']:.1f}x "
+                    f"({worst_r['class']}.{worst_r['method'].replace('Compiled','Runtime')})\n")
 
-    f.write(f"\n---\n*Generated from `{os.path.basename(json_file)}`*\n")
+    # Ceiling summary
+    ceiling_methods = groups.get("CeilingBenchmark", [])
+    if ceiling_methods:
+        fj2c = next((m["score"] for m in ceiling_methods if m["method"] == "fastjson2Compiled"), None)
+        fj2r = next((m["score"] for m in ceiling_methods if m["method"] == "fastjson2Runtime"), None)
+        bjc = next((m["score"] for m in ceiling_methods if m["method"] == "buffJsonCompiled"), None)
+        bjr = next((m["score"] for m in ceiling_methods if m["method"] == "buffJsonRuntime"), None)
+        if fj2c and bjc and fj2c > 0:
+            f.write(f"- **Compiled: BuffJSON vs fastjson2:** {bjc / fj2c:.2f}x\n")
+        if fj2r and bjr and fj2r > 0:
+            f.write(f"- **Runtime: BuffJSON vs fastjson2:** {bjr / fj2r:.2f}x\n")
+
+    f.write(f"\n\n---\n*Generated from `{os.path.basename(json_file)}`*\n")
 
 print(f"Report written to {report_file}")
 PYTHON_EOF

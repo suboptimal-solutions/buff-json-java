@@ -4,162 +4,16 @@ import java.util.Random;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
-import com.google.protobuf.Duration;
 import com.google.protobuf.ListValue;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.Value;
 
-import io.suboptimal.buffjson.benchmarks.pojo.*;
 import io.suboptimal.buffjson.proto.*;
 
 public final class BenchmarkData {
 
 	private BenchmarkData() {
-	}
-
-	// ---- Existing deterministic factories ----
-
-	public static SimpleMessage createSimpleMessage() {
-		return SimpleMessage.newBuilder().setName("benchmark-user").setId(42).setTimestampMillis(1711627200000L)
-				.setScore(99.95).setActive(true).setStatus(Status.STATUS_ACTIVE).build();
-	}
-
-	public static ComplexMessage createComplexMessage() {
-		Timestamp now = Timestamp.newBuilder().setSeconds(1711627200L).setNanos(0).build();
-
-		Address primaryAddr = Address.newBuilder().setStreet("123 Main St").setCity("Springfield").setState("IL")
-				.setZipCode("62704").setCountry("US").build();
-
-		Address secondaryAddr = Address.newBuilder().setStreet("456 Oak Ave").setCity("Shelbyville").setState("IL")
-				.setZipCode("62565").setCountry("US").build();
-
-		return ComplexMessage.newBuilder().setId("msg-001").setName("complex-benchmark").setVersion(1)
-				.setPrimaryAddress(primaryAddr).addTagsList("java").addTagsList("protobuf").addTagsList("benchmark")
-				.addAddresses(primaryAddr).addAddresses(secondaryAddr)
-				.addTags(Tag.newBuilder().setKey("env").setValue("prod").build())
-				.addTags(Tag.newBuilder().setKey("region").setValue("us-east").build()).putMetadata("version", "1.0")
-				.putMetadata("format", "json").putMetadata("encoding", "utf-8").putAddressBook(1, primaryAddr)
-				.setEmail("user@example.com").setPayload(ByteString.copyFromUtf8("binary-payload-data"))
-				.setCreatedAt(now).setUpdatedAt(now).setStatus(Status.STATUS_ACTIVE).build();
-	}
-
-	// ---- New deterministic factories ----
-
-	public static BenchAllScalars createBenchAllScalars() {
-		return BenchAllScalars.newBuilder().setFInt32(42).setFInt64(123456789012345L).setFUint32((int) 4000000000L)
-				.setFUint64(9000000000000000000L).setFSint32(-42).setFSint64(-123456789012345L).setFFixed32(100000)
-				.setFFixed64(200000000000L).setFSfixed32(-100000).setFSfixed64(-200000000000L).setFFloat(3.14f)
-				.setFDouble(2.718281828459045).setFBool(true).setFString("hello-scalars")
-				.setFBytes(ByteString.copyFromUtf8("binary-data")).setFEnum(BenchEnum.BENCH_ENUM_TWO).build();
-	}
-
-	public static BenchRepeatedHeavy createBenchRepeatedHeavy() {
-		BenchRepeatedHeavy.Builder builder = BenchRepeatedHeavy.newBuilder();
-		for (int i = 0; i < 100; i++) {
-			builder.addInts(i * 7 + 13);
-			builder.addStrings("item-" + i);
-		}
-		for (int i = 0; i < 20; i++) {
-			builder.addMessages(BenchAllScalars.newBuilder().setFInt32(i).setFString("msg-" + i).setFBool(i % 2 == 0)
-					.setFDouble(i * 1.1).build());
-		}
-		return builder.build();
-	}
-
-	public static BenchMapHeavy createBenchMapHeavy() {
-		BenchMapHeavy.Builder builder = BenchMapHeavy.newBuilder();
-		for (int i = 0; i < 50; i++) {
-			builder.putStringMap("key-" + i, "value-" + i);
-			builder.putIntKeyMap(i * 1000L + 1, "val-" + i);
-		}
-		for (int i = 0; i < 20; i++) {
-			builder.putMessageMap("msg-" + i, BenchAllScalars.newBuilder().setFInt32(i).setFString("map-" + i).build());
-		}
-		return builder.build();
-	}
-
-	public static BenchDeepNesting createBenchDeepNesting() {
-		BenchDeepNesting current = BenchDeepNesting.newBuilder().setName("leaf").setValue(5).build();
-		for (int i = 4; i >= 1; i--) {
-			current = BenchDeepNesting.newBuilder().setName("level-" + i).setValue(i).setChild(current).build();
-		}
-		return current;
-	}
-
-	public static BenchStringHeavy createBenchStringHeavy() {
-		StringBuilder longAscii = new StringBuilder(1024);
-		for (int i = 0; i < 1024; i++) {
-			longAscii.append((char) ('a' + (i % 26)));
-		}
-		StringBuilder escapeHeavy = new StringBuilder(256);
-		for (int i = 0; i < 64; i++) {
-			escapeHeavy.append("line\t").append(i).append("\n\"quoted\\path\"");
-		}
-		byte[] largePayload = new byte[4096];
-		for (int i = 0; i < largePayload.length; i++) {
-			largePayload[i] = (byte) (i & 0xFF);
-		}
-		return BenchStringHeavy.newBuilder().setShortAscii("hello").setLongAscii(longAscii.toString()).setUnicodeText(
-				"\u4f60\u597d\u4e16\u754c \ud83d\ude80 \u00e9\u00e8\u00ea \u03b1\u03b2\u03b3 \u0410\u0411\u0412")
-				.setEscapeHeavy(escapeHeavy.toString())
-				.setSmallPayload(ByteString.copyFrom(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}))
-				.setLargePayload(ByteString.copyFrom(largePayload)).build();
-	}
-
-	public static BenchTimestamps createBenchTimestamps() {
-		return BenchTimestamps.newBuilder()
-				.setTsSecondsOnly(Timestamp.newBuilder().setSeconds(1711627200L).setNanos(0).build())
-				.setTsMillis(Timestamp.newBuilder().setSeconds(1711627200L).setNanos(123000000).build())
-				.setTsNanos(Timestamp.newBuilder().setSeconds(1711627200L).setNanos(123456789).build()).build();
-	}
-
-	public static BenchDurations createBenchDurations() {
-		return BenchDurations.newBuilder().setPositive(Duration.newBuilder().setSeconds(3600).setNanos(0).build())
-				.setNegative(Duration.newBuilder().setSeconds(-3600).setNanos(-500000000).build())
-				.setWithNanos(Duration.newBuilder().setSeconds(1).setNanos(123456789).build()).build();
-	}
-
-	public static BenchWrappers createBenchWrappers() {
-		return BenchWrappers.newBuilder().setInt32Val(com.google.protobuf.Int32Value.of(42))
-				.setInt64Val(com.google.protobuf.Int64Value.of(123456789012345L))
-				.setUint32Val(com.google.protobuf.UInt32Value.of((int) 4000000000L))
-				.setUint64Val(com.google.protobuf.UInt64Value.of(9000000000000000000L))
-				.setFloatVal(com.google.protobuf.FloatValue.of(3.14f))
-				.setDoubleVal(com.google.protobuf.DoubleValue.of(2.718281828459045))
-				.setBoolVal(com.google.protobuf.BoolValue.of(true))
-				.setStringVal(com.google.protobuf.StringValue.of("wrapped-string"))
-				.setBytesVal(com.google.protobuf.BytesValue.of(ByteString.copyFromUtf8("wrapped-bytes"))).build();
-	}
-
-	public static BenchStruct createBenchStruct() {
-		Struct nested = Struct.newBuilder()
-				.putFields("inner_key", Value.newBuilder().setStringValue("inner_val").build())
-				.putFields("inner_num", Value.newBuilder().setNumberValue(99.9).build()).build();
-		ListValue list = ListValue.newBuilder().addValues(Value.newBuilder().setNumberValue(1).build())
-				.addValues(Value.newBuilder().setStringValue("two").build())
-				.addValues(Value.newBuilder().setBoolValue(true).build()).build();
-		Struct data = Struct.newBuilder().putFields("string_field", Value.newBuilder().setStringValue("hello").build())
-				.putFields("number_field", Value.newBuilder().setNumberValue(42.5).build())
-				.putFields("bool_field", Value.newBuilder().setBoolValue(true).build())
-				.putFields("null_field", Value.newBuilder().setNullValueValue(0).build())
-				.putFields("nested_struct", Value.newBuilder().setStructValue(nested).build())
-				.putFields("list_field", Value.newBuilder().setListValue(list).build())
-				.putFields("pi", Value.newBuilder().setNumberValue(3.14159265358979).build())
-				.putFields("empty_string", Value.newBuilder().setStringValue("").build())
-				.putFields("negative", Value.newBuilder().setNumberValue(-273.15).build())
-				.putFields("big_number", Value.newBuilder().setNumberValue(1e18).build()).build();
-		return BenchStruct.newBuilder().setData(data).build();
-	}
-
-	public static BenchAny createBenchAnyWithScalars() {
-		BenchAllScalars inner = createBenchAllScalars();
-		return BenchAny.newBuilder().setValue(Any.pack(inner)).build();
-	}
-
-	public static BenchAny createBenchAnyWithTimestamp() {
-		Timestamp inner = Timestamp.newBuilder().setSeconds(1711627200L).setNanos(123456789).build();
-		return BenchAny.newBuilder().setValue(Any.pack(inner)).build();
 	}
 
 	// ---- Random factories ----
@@ -225,7 +79,6 @@ public final class BenchmarkData {
 		BenchAllScalars[] result = new BenchAllScalars[n];
 		for (int i = 0; i < n; i++) {
 			BenchAllScalars.Builder b = BenchAllScalars.newBuilder();
-			// Randomly leave some fields at default to exercise both branches
 			if (rng.nextBoolean())
 				b.setFInt32(rng.nextInt());
 			if (rng.nextBoolean())
@@ -268,36 +121,6 @@ public final class BenchmarkData {
 		for (int i = 0; i < n; i++) {
 			result[i] = BenchTimestamps.newBuilder().setTsSecondsOnly(randomTimestamp(rng, 0))
 					.setTsMillis(randomTimestamp(rng, 3)).setTsNanos(randomTimestamp(rng, 9)).build();
-		}
-		return result;
-	}
-
-	public static BenchDurations[] createRandomBenchDurations(Random rng, int n) {
-		BenchDurations[] result = new BenchDurations[n];
-		for (int i = 0; i < n; i++) {
-			long posSec = rng.nextInt(100000);
-			long negSec = -(1 + rng.nextInt(100000));
-			int negNanos = -(rng.nextInt(999999999));
-			int nanos = rng.nextInt(999999999);
-			result[i] = BenchDurations.newBuilder().setPositive(Duration.newBuilder().setSeconds(posSec).build())
-					.setNegative(Duration.newBuilder().setSeconds(negSec).setNanos(negNanos).build())
-					.setWithNanos(Duration.newBuilder().setSeconds(rng.nextInt(10000)).setNanos(nanos).build()).build();
-		}
-		return result;
-	}
-
-	public static BenchWrappers[] createRandomBenchWrappers(Random rng, int n) {
-		BenchWrappers[] result = new BenchWrappers[n];
-		for (int i = 0; i < n; i++) {
-			result[i] = BenchWrappers.newBuilder().setInt32Val(com.google.protobuf.Int32Value.of(rng.nextInt()))
-					.setInt64Val(com.google.protobuf.Int64Value.of(rng.nextLong()))
-					.setUint32Val(com.google.protobuf.UInt32Value.of(rng.nextInt()))
-					.setUint64Val(com.google.protobuf.UInt64Value.of(rng.nextLong()))
-					.setFloatVal(com.google.protobuf.FloatValue.of(rng.nextFloat() * 1000))
-					.setDoubleVal(com.google.protobuf.DoubleValue.of(rng.nextDouble() * 1e10))
-					.setBoolVal(com.google.protobuf.BoolValue.of(rng.nextBoolean()))
-					.setStringVal(com.google.protobuf.StringValue.of(randomAscii(rng, 5 + rng.nextInt(20))))
-					.setBytesVal(com.google.protobuf.BytesValue.of(randomBytes(rng, 4 + rng.nextInt(32)))).build();
 		}
 		return result;
 	}
@@ -423,113 +246,9 @@ public final class BenchmarkData {
 		return result;
 	}
 
-	// ---- POJO factories (for fastjson2 raw comparison) ----
-
-	public static SimpleMessagePojo createSimpleMessagePojo() {
-		SimpleMessagePojo p = new SimpleMessagePojo();
-		p.setName("benchmark-user");
-		p.setId(42);
-		p.setTimestampMillis(1711627200000L);
-		p.setScore(99.95);
-		p.setActive(true);
-		p.setStatus("STATUS_ACTIVE");
-		return p;
-	}
-
-	public static SimpleMessagePojoCompiled createSimpleMessagePojoCompiled() {
-		SimpleMessagePojoCompiled p = new SimpleMessagePojoCompiled();
-		p.setName("benchmark-user");
-		p.setId(42);
-		p.setTimestampMillis(1711627200000L);
-		p.setScore(99.95);
-		p.setActive(true);
-		p.setStatus("STATUS_ACTIVE");
-		return p;
-	}
-
-	public static ComplexMessagePojo createComplexMessagePojo() {
-		AddressPojo primary = new AddressPojo();
-		primary.setStreet("123 Main St");
-		primary.setCity("Springfield");
-		primary.setState("IL");
-		primary.setZipCode("62704");
-		primary.setCountry("US");
-
-		AddressPojo secondary = new AddressPojo();
-		secondary.setStreet("456 Oak Ave");
-		secondary.setCity("Shelbyville");
-		secondary.setState("IL");
-		secondary.setZipCode("62565");
-		secondary.setCountry("US");
-
-		TagPojo tag1 = new TagPojo();
-		tag1.setKey("env");
-		tag1.setValue("prod");
-		TagPojo tag2 = new TagPojo();
-		tag2.setKey("region");
-		tag2.setValue("us-east");
-
-		ComplexMessagePojo p = new ComplexMessagePojo();
-		p.setId("msg-001");
-		p.setName("complex-benchmark");
-		p.setVersion(1);
-		p.setPrimaryAddress(primary);
-		p.setTagsList(java.util.List.of("java", "protobuf", "benchmark"));
-		p.setAddresses(java.util.List.of(primary, secondary));
-		p.setTags(java.util.List.of(tag1, tag2));
-		p.setMetadata(java.util.Map.of("version", "1.0", "format", "json", "encoding", "utf-8"));
-		p.setAddressBook(java.util.Map.of(1, primary));
-		p.setEmail("user@example.com");
-		p.setPayload("YmluYXJ5LXBheWxvYWQtZGF0YQ==");
-		p.setCreatedAt("2024-03-28T16:00:00Z");
-		p.setUpdatedAt("2024-03-28T16:00:00Z");
-		p.setStatus("STATUS_ACTIVE");
-		return p;
-	}
-
-	public static ComplexMessagePojoCompiled createComplexMessagePojoCompiled() {
-		AddressPojoCompiled primary = new AddressPojoCompiled();
-		primary.setStreet("123 Main St");
-		primary.setCity("Springfield");
-		primary.setState("IL");
-		primary.setZipCode("62704");
-		primary.setCountry("US");
-
-		AddressPojoCompiled secondary = new AddressPojoCompiled();
-		secondary.setStreet("456 Oak Ave");
-		secondary.setCity("Shelbyville");
-		secondary.setState("IL");
-		secondary.setZipCode("62565");
-		secondary.setCountry("US");
-
-		TagPojoCompiled tag1 = new TagPojoCompiled();
-		tag1.setKey("env");
-		tag1.setValue("prod");
-		TagPojoCompiled tag2 = new TagPojoCompiled();
-		tag2.setKey("region");
-		tag2.setValue("us-east");
-
-		ComplexMessagePojoCompiled p = new ComplexMessagePojoCompiled();
-		p.setId("msg-001");
-		p.setName("complex-benchmark");
-		p.setVersion(1);
-		p.setPrimaryAddress(primary);
-		p.setTagsList(java.util.List.of("java", "protobuf", "benchmark"));
-		p.setAddresses(java.util.List.of(primary, secondary));
-		p.setTags(java.util.List.of(tag1, tag2));
-		p.setMetadata(java.util.Map.of("version", "1.0", "format", "json", "encoding", "utf-8"));
-		p.setAddressBook(java.util.Map.of(1, primary));
-		p.setEmail("user@example.com");
-		p.setPayload("YmluYXJ5LXBheWxvYWQtZGF0YQ==");
-		p.setCreatedAt("2024-03-28T16:00:00Z");
-		p.setUpdatedAt("2024-03-28T16:00:00Z");
-		p.setStatus("STATUS_ACTIVE");
-		return p;
-	}
-
 	// ---- Helpers ----
 
-	private static String randomAscii(Random rng, int len) {
+	static String randomAscii(Random rng, int len) {
 		char[] chars = new char[len];
 		for (int i = 0; i < len; i++) {
 			chars[i] = (char) ('a' + rng.nextInt(26));

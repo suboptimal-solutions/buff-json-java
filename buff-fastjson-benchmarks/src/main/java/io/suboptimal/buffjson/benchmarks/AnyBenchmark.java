@@ -14,11 +14,15 @@ import io.suboptimal.buffjson.Encoder;
 import io.suboptimal.buffjson.proto.BenchAllScalars;
 import io.suboptimal.buffjson.proto.BenchAny;
 
+/**
+ * Full-profile benchmark: Any type with TypeRegistry lookup and dynamic
+ * unpacking.
+ */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 @State(Scope.Benchmark)
 public class AnyBenchmark {
 
@@ -26,81 +30,47 @@ public class AnyBenchmark {
 	private static final int MASK = POOL_SIZE - 1;
 	private static final TypeRegistry TYPE_REGISTRY = TypeRegistry.newBuilder().add(BenchAllScalars.getDescriptor())
 			.add(Timestamp.getDescriptor()).build();
-	private static final Encoder CODEGEN_ENCODER = BuffJSON.encoder().withTypeRegistry(TYPE_REGISTRY);
-	private static final Encoder GENERIC_ENCODER = CODEGEN_ENCODER.withGeneratedEncoders(false);
+	private static final Encoder COMPILED_ENCODER = BuffJSON.encoder().withTypeRegistry(TYPE_REGISTRY);
+	private static final Encoder RUNTIME_ENCODER = COMPILED_ENCODER.withGeneratedEncoders(false);
 	private static final JsonFormat.Printer PROTO_PRINTER = JsonFormat.printer().usingTypeRegistry(TYPE_REGISTRY);
 
-	private BenchAny anyScalar;
 	private BenchAny[] randomAnyScalars;
-	private BenchAny anyTimestamp;
 	private BenchAny[] randomAnyTimestamps;
 	private int index;
 
 	@Setup
 	public void setup() {
-		anyScalar = BenchmarkData.createBenchAnyWithScalars();
 		randomAnyScalars = BenchmarkData.createRandomBenchAnyWithScalars(new Random(42), POOL_SIZE);
-		anyTimestamp = BenchmarkData.createBenchAnyWithTimestamp();
 		randomAnyTimestamps = BenchmarkData.createRandomBenchAnyWithTimestamp(new Random(43), POOL_SIZE);
 	}
 
 	@Benchmark
-	public String anyScalarCodegen() {
-		return CODEGEN_ENCODER.encode(anyScalar);
+	public String anyScalarCompiled() {
+		return COMPILED_ENCODER.encode(randomAnyScalars[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String anyScalarCodegenRandom() {
-		return CODEGEN_ENCODER.encode(randomAnyScalars[index++ & MASK]);
-	}
-
-	@Benchmark
-	public String anyScalarGeneric() {
-		return GENERIC_ENCODER.encode(anyScalar);
-	}
-
-	@Benchmark
-	public String anyScalarGenericRandom() {
-		return GENERIC_ENCODER.encode(randomAnyScalars[index++ & MASK]);
+	public String anyScalarRuntime() {
+		return RUNTIME_ENCODER.encode(randomAnyScalars[index++ & MASK]);
 	}
 
 	@Benchmark
 	public String anyScalarJsonFormat() throws Exception {
-		return PROTO_PRINTER.print(anyScalar);
-	}
-
-	@Benchmark
-	public String anyScalarJsonFormatRandom() throws Exception {
 		return PROTO_PRINTER.print(randomAnyScalars[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String anyTimestampCodegen() {
-		return CODEGEN_ENCODER.encode(anyTimestamp);
+	public String anyTimestampCompiled() {
+		return COMPILED_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String anyTimestampCodegenRandom() {
-		return CODEGEN_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
-	}
-
-	@Benchmark
-	public String anyTimestampGeneric() {
-		return GENERIC_ENCODER.encode(anyTimestamp);
-	}
-
-	@Benchmark
-	public String anyTimestampGenericRandom() {
-		return GENERIC_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
+	public String anyTimestampRuntime() {
+		return RUNTIME_ENCODER.encode(randomAnyTimestamps[index++ & MASK]);
 	}
 
 	@Benchmark
 	public String anyTimestampJsonFormat() throws Exception {
-		return PROTO_PRINTER.print(anyTimestamp);
-	}
-
-	@Benchmark
-	public String anyTimestampJsonFormatRandom() throws Exception {
 		return PROTO_PRINTER.print(randomAnyTimestamps[index++ & MASK]);
 	}
 }

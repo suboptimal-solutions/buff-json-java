@@ -27,6 +27,7 @@
 
     <properties>
         <fastjson2.version>2.0.61</fastjson2.version>
+        <jackson-datatype-protobuf.version>0.9.18</jackson-datatype-protobuf.version>
         <jmh.version>1.37</jmh.version>
         <junit.version>5.11.4</junit.version>
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
@@ -60,6 +61,11 @@
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java-util</artifactId>
                 <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.hubspot.jackson</groupId>
+                <artifactId>jackson-datatype-protobuf</artifactId>
+                <version>${jackson-datatype-protobuf.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.suboptimal-solutions</groupId>

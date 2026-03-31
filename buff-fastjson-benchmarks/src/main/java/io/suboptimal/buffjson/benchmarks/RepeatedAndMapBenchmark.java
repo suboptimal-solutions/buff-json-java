@@ -12,90 +12,60 @@ import io.suboptimal.buffjson.Encoder;
 import io.suboptimal.buffjson.proto.BenchMapHeavy;
 import io.suboptimal.buffjson.proto.BenchRepeatedHeavy;
 
+/**
+ * Regression benchmark: scaling with collection size (100+ repeated elements,
+ * 50+ map entries).
+ */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 @State(Scope.Benchmark)
 public class RepeatedAndMapBenchmark {
 
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
 	private static final JsonFormat.Printer PROTO_PRINTER = JsonFormat.printer();
-	private static final Encoder GENERIC_ENCODER = BuffJSON.encoder().withGeneratedEncoders(false);
+	private static final Encoder RUNTIME_ENCODER = BuffJSON.encoder().withGeneratedEncoders(false);
 
-	private BenchRepeatedHeavy repeated;
 	private BenchRepeatedHeavy[] randomRepeated;
-	private BenchMapHeavy map;
 	private BenchMapHeavy[] randomMaps;
 	private int index;
 
 	@Setup
 	public void setup() {
-		repeated = BenchmarkData.createBenchRepeatedHeavy();
 		randomRepeated = BenchmarkData.createRandomBenchRepeatedHeavy(new Random(42), POOL_SIZE);
-		map = BenchmarkData.createBenchMapHeavy();
 		randomMaps = BenchmarkData.createRandomBenchMapHeavy(new Random(43), POOL_SIZE);
 	}
 
 	@Benchmark
-	public String repeatedCodegen() {
-		return BuffJSON.encode(repeated);
-	}
-
-	@Benchmark
-	public String repeatedCodegenRandom() {
+	public String repeatedCompiled() {
 		return BuffJSON.encode(randomRepeated[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String repeatedGeneric() {
-		return GENERIC_ENCODER.encode(repeated);
-	}
-
-	@Benchmark
-	public String repeatedGenericRandom() {
-		return GENERIC_ENCODER.encode(randomRepeated[index++ & MASK]);
+	public String repeatedRuntime() {
+		return RUNTIME_ENCODER.encode(randomRepeated[index++ & MASK]);
 	}
 
 	@Benchmark
 	public String repeatedJsonFormat() throws Exception {
-		return PROTO_PRINTER.print(repeated);
-	}
-
-	@Benchmark
-	public String repeatedJsonFormatRandom() throws Exception {
 		return PROTO_PRINTER.print(randomRepeated[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String mapCodegen() {
-		return BuffJSON.encode(map);
-	}
-
-	@Benchmark
-	public String mapCodegenRandom() {
+	public String mapCompiled() {
 		return BuffJSON.encode(randomMaps[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String mapGeneric() {
-		return GENERIC_ENCODER.encode(map);
-	}
-
-	@Benchmark
-	public String mapGenericRandom() {
-		return GENERIC_ENCODER.encode(randomMaps[index++ & MASK]);
+	public String mapRuntime() {
+		return RUNTIME_ENCODER.encode(randomMaps[index++ & MASK]);
 	}
 
 	@Benchmark
 	public String mapJsonFormat() throws Exception {
-		return PROTO_PRINTER.print(map);
-	}
-
-	@Benchmark
-	public String mapJsonFormatRandom() throws Exception {
 		return PROTO_PRINTER.print(randomMaps[index++ & MASK]);
 	}
 }

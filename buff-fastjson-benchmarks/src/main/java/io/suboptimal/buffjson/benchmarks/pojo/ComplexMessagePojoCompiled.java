@@ -3,9 +3,6 @@ package io.suboptimal.buffjson.benchmarks.pojo;
 import java.util.List;
 import java.util.Map;
 
-import com.alibaba.fastjson2.annotation.JSONCompiled;
-
-@JSONCompiled
 public class ComplexMessagePojoCompiled {
 
 	private String id;
