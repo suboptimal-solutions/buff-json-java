@@ -52,19 +52,22 @@ public final class BuffJsonProtocPlugin {
 			Map<String, String> protoToJavaClass = buildClassNameMap(fileDescriptors);
 			Set<String> filesToGenerate = new HashSet<>(request.getFileToGenerateList());
 
-			// Pre-compute encoder class names so generated encoders can reference each
-			// other directly (bypassing the registry for nested message fields)
+			// Pre-compute encoder and decoder class names so generated code can
+			// reference each other directly (bypassing the registry)
 			Map<String, String> protoToEncoderClass = new HashMap<>();
+			Map<String, String> protoToDecoderClass = new HashMap<>();
 			for (FileDescriptor fileDesc : fileDescriptors.values()) {
 				if (!filesToGenerate.contains(fileDesc.getName()))
 					continue;
 				String javaPackage = getJavaPackage(fileDesc);
 				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
-					collectEncoderNames(msgDesc, javaPackage, protoToEncoderClass);
+					collectCodegenNames(msgDesc, javaPackage, protoToEncoderClass, "JsonEncoder");
+					collectCodegenNames(msgDesc, javaPackage, protoToDecoderClass, "JsonDecoder");
 				}
 			}
 
 			List<String> encoderClassNames = new ArrayList<>();
+			List<String> decoderClassNames = new ArrayList<>();
 
 			for (FileDescriptor fileDesc : fileDescriptors.values()) {
 				if (!filesToGenerate.contains(fileDesc.getName()))
@@ -73,8 +76,10 @@ public final class BuffJsonProtocPlugin {
 				String javaPackage = getJavaPackage(fileDesc);
 
 				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
-					generateEncoders(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
-							encoderClassNames);
+					generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
+							encoderClassNames, "JsonEncoder", EncoderGenerator::generate);
+					generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToDecoderClass,
+							decoderClassNames, "JsonDecoder", DecoderGenerator::generate);
 				}
 			}
 
@@ -83,6 +88,11 @@ public final class BuffJsonProtocPlugin {
 						.setName("META-INF/services/io.suboptimal.buffjson.GeneratedEncoder")
 						.setContent(String.join("\n", encoderClassNames) + "\n").build());
 			}
+			if (!decoderClassNames.isEmpty()) {
+				response.addFile(CodeGeneratorResponse.File.newBuilder()
+						.setName("META-INF/services/io.suboptimal.buffjson.GeneratedDecoder")
+						.setContent(String.join("\n", decoderClassNames) + "\n").build());
+			}
 		} catch (Exception e) {
 			response.setError(e.getMessage());
 		}
@@ -90,21 +100,27 @@ public final class BuffJsonProtocPlugin {
 		response.build().writeTo(System.out);
 	}
 
-	private static void collectEncoderNames(Descriptor msgDesc, String javaPackage,
-			Map<String, String> protoToEncoderClass) {
+	private static void collectCodegenNames(Descriptor msgDesc, String javaPackage, Map<String, String> out,
+			String suffix) {
 		if (msgDesc.getOptions().getMapEntry())
 			return;
 		if (WELL_KNOWN_TYPES.contains(msgDesc.getFullName()))
 			return;
-		protoToEncoderClass.put(msgDesc.getFullName(), javaPackage + "." + flatName(msgDesc) + "JsonEncoder");
+		out.put(msgDesc.getFullName(), javaPackage + "." + flatName(msgDesc) + suffix);
 		for (Descriptor nested : msgDesc.getNestedTypes()) {
-			collectEncoderNames(nested, javaPackage, protoToEncoderClass);
+			collectCodegenNames(nested, javaPackage, out, suffix);
 		}
 	}
 
-	private static void generateEncoders(CodeGeneratorResponse.Builder response, Descriptor msgDesc, String javaPackage,
-			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass,
-			List<String> encoderClassNames) {
+	@FunctionalInterface
+	private interface CodeGenerator {
+		String generate(Descriptor msgDesc, String javaPackage, String simpleName, String messageClassName,
+				Map<String, String> protoToJavaClass, Map<String, String> protoToCodegenClass);
+	}
+
+	private static void generateCodegenClasses(CodeGeneratorResponse.Builder response, Descriptor msgDesc,
+			String javaPackage, Map<String, String> protoToJavaClass, Map<String, String> protoToCodegenClass,
+			List<String> classNames, String suffix, CodeGenerator generator) {
 
 		if (msgDesc.getOptions().getMapEntry())
 			return;
@@ -112,18 +128,19 @@ public final class BuffJsonProtocPlugin {
 			return;
 
 		String messageClassName = protoToJavaClass.get(msgDesc.getFullName());
-		String encoderSimpleName = flatName(msgDesc) + "JsonEncoder";
-		String encoderFullName = javaPackage + "." + encoderSimpleName;
+		String simpleName = flatName(msgDesc) + suffix;
+		String fullName = javaPackage + "." + simpleName;
 
-		String source = EncoderGenerator.generate(msgDesc, javaPackage, encoderSimpleName, messageClassName,
-				protoToJavaClass, protoToEncoderClass);
+		String source = generator.generate(msgDesc, javaPackage, simpleName, messageClassName, protoToJavaClass,
+				protoToCodegenClass);
 
-		String filePath = javaPackage.replace('.', '/') + "/" + encoderSimpleName + ".java";
+		String filePath = javaPackage.replace('.', '/') + "/" + simpleName + ".java";
 		response.addFile(CodeGeneratorResponse.File.newBuilder().setName(filePath).setContent(source).build());
-		encoderClassNames.add(encoderFullName);
+		classNames.add(fullName);
 
 		for (Descriptor nested : msgDesc.getNestedTypes()) {
-			generateEncoders(response, nested, javaPackage, protoToJavaClass, protoToEncoderClass, encoderClassNames);
+			generateCodegenClasses(response, nested, javaPackage, protoToJavaClass, protoToCodegenClass, classNames,
+					suffix, generator);
 		}
 	}
 

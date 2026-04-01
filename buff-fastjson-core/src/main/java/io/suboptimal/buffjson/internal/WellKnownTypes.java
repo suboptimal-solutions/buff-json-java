@@ -4,18 +4,17 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.alibaba.fastjson2.JSONReader;
 import com.alibaba.fastjson2.JSONWriter;
-import com.google.protobuf.ByteString;
+import com.google.protobuf.*;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
-import com.google.protobuf.DynamicMessage;
-import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.Message;
-import com.google.protobuf.TypeRegistry;
 
 import io.suboptimal.buffjson.BuffJSON;
 
@@ -362,6 +361,222 @@ public final class WellKnownTypes {
 			} else {
 				sb.append(upperNext ? Character.toUpperCase(c) : c);
 				upperNext = false;
+			}
+		}
+		return sb.toString();
+	}
+
+	// =========================================================================
+	// Deserialization (JSON → protobuf)
+	// =========================================================================
+
+	/**
+	 * Reads a well-known type from JSON. Dispatches by descriptor full name.
+	 */
+	public static Message readWkt(JSONReader reader, Descriptor descriptor) {
+		return switch (descriptor.getFullName()) {
+			case "google.protobuf.Any" -> readAny(reader);
+			case "google.protobuf.Timestamp" -> readTimestamp(reader);
+			case "google.protobuf.Duration" -> readDuration(reader);
+			case "google.protobuf.FieldMask" -> readFieldMask(reader);
+			case "google.protobuf.Struct" -> readStruct(reader);
+			case "google.protobuf.Value" -> readJsonValue(reader);
+			case "google.protobuf.ListValue" -> readListValue(reader);
+			case "google.protobuf.DoubleValue" -> DoubleValue.of(FieldReader.readDoubleValue(reader));
+			case "google.protobuf.FloatValue" -> FloatValue.of(FieldReader.readFloatValue(reader));
+			case "google.protobuf.Int64Value" -> Int64Value.of(FieldReader.readSignedLong(reader));
+			case "google.protobuf.UInt64Value" -> UInt64Value.of(FieldReader.readUnsignedLong(reader));
+			case "google.protobuf.Int32Value" -> Int32Value.of(reader.readInt32Value());
+			case "google.protobuf.UInt32Value" -> UInt32Value.of((int) reader.readInt64Value());
+			case "google.protobuf.BoolValue" -> BoolValue.of(reader.readBoolValue());
+			case "google.protobuf.StringValue" -> StringValue.of(reader.readString());
+			case "google.protobuf.BytesValue" ->
+				BytesValue.of(ByteString.copyFrom(FieldReader.BASE64.decode(reader.readString())));
+			default -> throw new IllegalArgumentException("Unknown well-known type: " + descriptor.getFullName());
+		};
+	}
+
+	/** Reads an RFC 3339 timestamp string and returns a Timestamp message. */
+	public static Timestamp readTimestamp(JSONReader reader) {
+		String rfc3339 = reader.readString();
+		return parseTimestamp(rfc3339);
+	}
+
+	/**
+	 * Reads a duration string (e.g., "3600.500s") and returns a Duration message.
+	 */
+	public static Duration readDuration(JSONReader reader) {
+		String s = reader.readString();
+		return parseDuration(s);
+	}
+
+	static Timestamp parseTimestamp(String rfc3339) {
+		Instant instant = Instant.parse(rfc3339);
+		return Timestamp.newBuilder().setSeconds(instant.getEpochSecond()).setNanos(instant.getNano()).build();
+	}
+
+	static Duration parseDuration(String s) {
+		if (!s.endsWith("s")) {
+			throw new IllegalArgumentException("Invalid duration: " + s);
+		}
+		String numPart = s.substring(0, s.length() - 1);
+		boolean negative = numPart.startsWith("-");
+		if (negative) {
+			numPart = numPart.substring(1);
+		}
+
+		long seconds;
+		int nanos = 0;
+		int dotIndex = numPart.indexOf('.');
+		if (dotIndex >= 0) {
+			seconds = Long.parseLong(numPart.substring(0, dotIndex));
+			String fracStr = numPart.substring(dotIndex + 1);
+			// Pad to 9 digits
+			fracStr = (fracStr + "000000000").substring(0, 9);
+			nanos = Integer.parseInt(fracStr);
+		} else {
+			seconds = Long.parseLong(numPart);
+		}
+
+		if (negative) {
+			seconds = -seconds;
+			if (nanos != 0) {
+				nanos = -nanos;
+			}
+		}
+		return Duration.newBuilder().setSeconds(seconds).setNanos(nanos).build();
+	}
+
+	private static FieldMask readFieldMask(JSONReader reader) {
+		String camelCase = reader.readString();
+		FieldMask.Builder builder = FieldMask.newBuilder();
+		if (!camelCase.isEmpty()) {
+			for (String path : camelCase.split(",")) {
+				builder.addPaths(camelToSnake(path));
+			}
+		}
+		return builder.build();
+	}
+
+	/** Reads a native JSON object as a protobuf Struct. */
+	public static Struct readStruct(JSONReader reader) {
+		Struct.Builder builder = Struct.newBuilder();
+		reader.nextIfObjectStart();
+		while (!reader.nextIfObjectEnd()) {
+			String key = reader.readFieldName();
+			if (key == null) {
+				break;
+			}
+			Value value = readJsonValueImpl(reader);
+			builder.putFields(key, value);
+		}
+		return builder.build();
+	}
+
+	/** Reads a native JSON value as a protobuf Value (dispatch on token type). */
+	public static Value readJsonValue(JSONReader reader) {
+		return readJsonValueImpl(reader);
+	}
+
+	private static Value readJsonValueImpl(JSONReader reader) {
+		if (reader.nextIfNull()) {
+			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+		}
+		if (reader.isString()) {
+			return Value.newBuilder().setStringValue(reader.readString()).build();
+		}
+		char c = reader.current();
+		if (c == 't' || c == 'f') {
+			return Value.newBuilder().setBoolValue(reader.readBoolValue()).build();
+		}
+		if (c == '{') {
+			return Value.newBuilder().setStructValue(readStruct(reader)).build();
+		}
+		if (c == '[') {
+			return Value.newBuilder().setListValue(readListValue(reader)).build();
+		}
+		// Must be a number
+		return Value.newBuilder().setNumberValue(reader.readDoubleValue()).build();
+	}
+
+	/** Reads a native JSON array as a protobuf ListValue. */
+	public static ListValue readListValue(JSONReader reader) {
+		ListValue.Builder builder = ListValue.newBuilder();
+		reader.nextIfArrayStart();
+		while (!reader.nextIfArrayEnd()) {
+			builder.addValues(readJsonValueImpl(reader));
+		}
+		return builder.build();
+	}
+
+	private static Any readAny(JSONReader reader) {
+		// Read the entire JSON object into a map to extract @type first
+		reader.nextIfObjectStart();
+
+		String typeUrl = null;
+		Map<String, Object> allFields = new LinkedHashMap<>();
+		while (!reader.nextIfObjectEnd()) {
+			String key = reader.readFieldName();
+			if (key == null) {
+				break;
+			}
+			if ("@type".equals(key)) {
+				typeUrl = reader.readString();
+			} else {
+				allFields.put(key, reader.readAny());
+			}
+		}
+
+		if (typeUrl == null || typeUrl.isEmpty()) {
+			return Any.getDefaultInstance();
+		}
+
+		TypeRegistry registry = BuffJSON.ACTIVE_REGISTRY.get();
+		if (registry == null) {
+			throw new IllegalStateException("Cannot deserialize google.protobuf.Any without a TypeRegistry. "
+					+ "Use BuffJSON.decoder().withTypeRegistry(registry).decode(json, clazz).");
+		}
+
+		Descriptor type;
+		try {
+			type = registry.getDescriptorForTypeUrl(typeUrl);
+		} catch (InvalidProtocolBufferException e) {
+			throw new IllegalStateException("Invalid type URL in Any: " + typeUrl, e);
+		}
+		if (type == null) {
+			throw new IllegalStateException("Cannot find type for url: " + typeUrl);
+		}
+
+		Message contentMessage;
+		if (isWellKnownType(type)) {
+			// WKT packed in Any: {"@type": "...", "value": <wkt-json>}
+			Object valueObj = allFields.get("value");
+			String valueJson = com.alibaba.fastjson2.JSON.toJSONString(valueObj);
+			try (JSONReader valueReader = JSONReader.of(valueJson)) {
+				contentMessage = readWkt(valueReader, type);
+			}
+		} else {
+			// Regular message: {"@type": "...", ...fields...}
+			String fieldsJson = com.alibaba.fastjson2.JSON.toJSONString(allFields);
+			try (JSONReader fieldsReader = JSONReader.of(fieldsJson)) {
+				contentMessage = ProtobufMessageReader.readMessage(fieldsReader, type);
+			}
+		}
+
+		return Any.pack(contentMessage);
+	}
+
+	/**
+	 * Converts lowerCamelCase to snake_case for FieldMask path parsing.
+	 */
+	static String camelToSnake(String camel) {
+		StringBuilder sb = new StringBuilder(camel.length() + 4);
+		for (int i = 0; i < camel.length(); i++) {
+			char c = camel.charAt(i);
+			if (Character.isUpperCase(c)) {
+				sb.append('_').append(Character.toLowerCase(c));
+			} else {
+				sb.append(c);
 			}
 		}
 		return sb.toString();

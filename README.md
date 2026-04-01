@@ -90,9 +90,23 @@ Also add the generated ServiceLoader file as a resource:
 </resources>
 ```
 
-No code changes needed — generated encoders are discovered automatically via `ServiceLoader`. The API (`BuffJSON.encode()`) is unchanged. If the plugin is not configured, the generic reflection path is used.
+No code changes needed — generated encoders and decoders are discovered automatically via `ServiceLoader`. The API (`BuffJSON.encode()` / `BuffJSON.decode()`) is unchanged. If the plugin is not configured, the generic reflection path is used.
 
-The output matches `JsonFormat.printer().omittingInsignificantWhitespace().print()` exactly.
+The serialization output matches `JsonFormat.printer().omittingInsignificantWhitespace().print()` exactly.
+
+### Deserialization (JSON to protobuf)
+
+```java
+// Basic
+MyMessage msg = BuffJSON.decode(json, MyMessage.class);
+
+// With Any type support
+Decoder decoder = BuffJSON.decoder()
+    .withTypeRegistry(TypeRegistry.newBuilder()
+        .add(MyMessage.getDescriptor())
+        .build());
+MyMessage msg = decoder.decode(json, MyMessage.class);
+```
 
 ## Proto3 JSON Spec Compliance
 
@@ -117,7 +131,7 @@ The output matches `JsonFormat.printer().omittingInsignificantWhitespace().print
 | All 9 wrapper types (`Int32Value`, `StringValue`, etc.)                                                                                   | Supported |
 | `google.protobuf.Any` (with TypeRegistry)                                                                                                 | Supported |
 | `google.protobuf.Empty`                                                                                                                   | Supported |
-| Deserialization (JSON to protobuf)                                                                                                        | Not yet   |
+| Deserialization (JSON to protobuf)                                                                                                        | Supported |
 
 ## Building
 

@@ -1,5 +1,7 @@
 package io.suboptimal.buffjson.internal;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.protobuf.Descriptors.Descriptor;
@@ -25,12 +27,21 @@ public final class MessageSchema {
 	private static final ConcurrentHashMap<Descriptor, MessageSchema> CACHE = new ConcurrentHashMap<>();
 
 	private final FieldInfo[] fields;
+	private final Map<String, FieldInfo> fieldsByJsonName;
 
 	private MessageSchema(Descriptor descriptor) {
 		var fieldDescriptors = descriptor.getFields();
 		this.fields = new FieldInfo[fieldDescriptors.size()];
+		this.fieldsByJsonName = new HashMap<>(fieldDescriptors.size() * 2);
 		for (int i = 0; i < fieldDescriptors.size(); i++) {
-			this.fields[i] = new FieldInfo(fieldDescriptors.get(i));
+			FieldInfo fi = new FieldInfo(fieldDescriptors.get(i));
+			this.fields[i] = fi;
+			fieldsByJsonName.put(fi.jsonName(), fi);
+			// Proto3 JSON spec: parsers must accept both jsonName and original name
+			String protoName = fieldDescriptors.get(i).getName();
+			if (!protoName.equals(fi.jsonName())) {
+				fieldsByJsonName.put(protoName, fi);
+			}
 		}
 	}
 
@@ -40,6 +51,14 @@ public final class MessageSchema {
 
 	public FieldInfo[] fields() {
 		return fields;
+	}
+
+	/**
+	 * Looks up a field by its JSON name or original proto name. Returns null if not
+	 * found.
+	 */
+	public FieldInfo fieldByJsonName(String name) {
+		return fieldsByJsonName.get(name);
 	}
 
 	/**
