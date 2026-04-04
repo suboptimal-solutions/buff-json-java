@@ -12,6 +12,8 @@ io.suboptimal.buffjson/
   BuffJSON.java                    # Static entry point + factory: BuffJSON.encode(), BuffJSON.encoder()
   Encoder.java                     # Immutable, thread-safe encoder with optional TypeRegistry + useGeneratedEncoders
   GeneratedEncoder.java            # Interface for protoc-plugin-generated encoders (ServiceLoader discovered)
+  GeneratedDecoder.java            # Interface for protoc-plugin-generated decoders (ServiceLoader discovered)
+  GeneratedComments.java           # Interface for protoc-plugin-generated comment providers (ServiceLoader discovered)
 
 io.suboptimal.buffjson.internal/
   ProtobufWriterModule.java        # fastjson2 ObjectWriterModule (intercepts Message types)

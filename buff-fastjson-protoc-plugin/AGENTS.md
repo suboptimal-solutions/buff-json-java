@@ -2,10 +2,12 @@
 
 ## Module Purpose
 
-Protoc plugin that generates optimized `*JsonEncoder` classes per protobuf message type.
+Protoc plugin that generates optimized `*JsonEncoder`, `*JsonDecoder`, and `*Comments` classes.
 Generated encoders use typed accessors directly (`msg.getId()` returns `int`) instead of
 `message.getField(fd)` (which returns `Object` and boxes primitives), eliminating boxing,
-runtime type dispatch, and schema cache lookups.
+runtime type dispatch, and schema cache lookups. Generated comment classes extract proto
+source comments from `SourceCodeInfo` (which protoc always provides to plugins even without
+`--include_source_info`) and make them available at runtime for JSON Schema `description` fields.
 
 ## How It Works
 
@@ -16,7 +18,9 @@ Standard protoc plugin protocol: reads `CodeGeneratorRequest` from stdin, writes
 ## Key Classes
 
 - `BuffJsonProtocPlugin.java` — main entry point, builds `FileDescriptor` graph, orchestrates generation
-- `EncoderGenerator.java` — generates one Java source file per message type
+- `EncoderGenerator.java` — generates one `*JsonEncoder` class per message type
+- `DecoderGenerator.java` — generates one `*JsonDecoder` class per message type
+- `CommentGenerator.java` — generates one `*Comments` class per proto file (extracting comments from `SourceCodeInfo`)
 
 ## What Gets Generated
 
@@ -28,6 +32,8 @@ For each non-WKT, non-map-entry message type:
 4. Pre-cached `String[] ENUM_*_NAMES` arrays for each enum type (built from enum descriptor at class init, avoiding `UNRECOGNIZED` which throws from `getNumber()`)
 5. A `writeFields()` method with inlined per-field encoding logic
 6. A `META-INF/services/io.suboptimal.buffjson.GeneratedEncoder` file listing all encoders
+7. A `*Comments.java` class per proto file implementing `GeneratedComments` with a `Map<String, String>` of proto full name → leading comment
+8. A `META-INF/services/io.suboptimal.buffjson.GeneratedComments` file listing all comment providers
 
 ## Field Handling
 

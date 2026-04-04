@@ -94,9 +94,9 @@ String json = genericEncoder.encode(message);
 
 ## Module Layout
 
-- **buff-fastjson-core** — public API (`BuffJSON`, `Encoder`, `Decoder`, `GeneratedEncoder`, `GeneratedDecoder`) + internal serialization/deserialization
-- **buff-fastjson-protoc-plugin** — protoc plugin that generates `*JsonEncoder` and `*JsonDecoder` per message type. Depends only on `protobuf-java`. Reads `CodeGeneratorRequest` from stdin, writes `CodeGeneratorResponse` to stdout.
-- **buff-protobuf-schema** — JSON Schema (draft 2020-12) generation from protobuf Descriptors. Depends only on `protobuf-java` (no fastjson2). Single class: `ProtobufSchema.generate(Descriptor)` returns `Map<String, Object>`.
+- **buff-fastjson-core** — public API (`BuffJSON`, `Encoder`, `Decoder`, `GeneratedEncoder`, `GeneratedDecoder`, `GeneratedComments`) + internal serialization/deserialization
+- **buff-fastjson-protoc-plugin** — protoc plugin that generates `*JsonEncoder`, `*JsonDecoder`, and `*Comments` per message/proto file. Depends only on `protobuf-java`. Reads `CodeGeneratorRequest` from stdin, writes `CodeGeneratorResponse` to stdout. The `*Comments` classes extract proto source comments from `SourceCodeInfo` (which protoc always sends to plugins) and make them available at runtime via `ServiceLoader`.
+- **buff-protobuf-schema** — JSON Schema (draft 2020-12) generation from protobuf Descriptors. Depends on `protobuf-java` and `buff-fastjson-core` (both provided scope). `ProtobufSchema.generate(Descriptor)` returns `Map<String, Object>`. Includes `title`, `description` (from proto comments via `GeneratedComments` or `SourceCodeInfo`), `format` hints, and `contentEncoding`.
 - **buff-fastjson-tests** — conformance tests (each validates both codegen and generic paths) + JSON Schema tests + own .proto definitions
 - **buff-fastjson-benchmarks** — JMH benchmarks (3-way: codegen vs generic vs JsonFormat) + own .proto definitions
 

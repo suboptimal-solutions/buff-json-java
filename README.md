@@ -112,7 +112,7 @@ MyMessage msg = decoder.decode(json, MyMessage.class);
 
 Generate [JSON Schema (draft 2020-12)](https://json-schema.org/draft/2020-12/schema) from protobuf message descriptors. Useful for OpenAPI 3.1+, AsyncAPI 3.0+, and MCP tool definitions.
 
-Provided by the `buff-protobuf-schema` module — depends only on `protobuf-java`, no fastjson2 required.
+Provided by the `buff-protobuf-schema` module. When used with the protoc plugin, proto comments are automatically included as `description` fields in the schema.
 
 ```java
 import io.suboptimal.buffjson.schema.ProtobufSchema;
@@ -124,7 +124,7 @@ Map<String, Object> schema = ProtobufSchema.generate(MyMessage.getDescriptor());
 Map<String, Object> schema = ProtobufSchema.generate(MyMessage.class);
 ```
 
-The schema reflects the [Proto3 JSON mapping](https://protobuf.dev/programming-guides/proto3/#json): int64 types become `{"type": "string"}`, Timestamp becomes `{"type": "string", "format": "date-time"}`, enums become `{"type": "string", "enum": [...]}`, etc. Recursive messages use `$defs`/`$ref`. Returns `Map<String, Object>` for portability — serialize with any JSON library or pass directly to schema-consuming tooling.
+The schema reflects the [Proto3 JSON mapping](https://protobuf.dev/programming-guides/proto3/#json): int64 types become `{"type": "string", "format": "int64"}`, Timestamp becomes `{"type": "string", "format": "date-time"}`, enums become `{"type": "string", "enum": [...]}`, bytes become `{"type": "string", "contentEncoding": "base64"}`, etc. Messages include `title` from the type name and `description` from proto comments (when the protoc plugin is used). Recursive messages use `$defs`/`$ref`. Returns `Map<String, Object>` for portability — serialize with any JSON library or pass directly to schema-consuming tooling.
 
 ## Proto3 JSON Spec Compliance
 

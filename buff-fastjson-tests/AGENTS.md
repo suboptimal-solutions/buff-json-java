@@ -53,22 +53,23 @@ are produced alongside standard protobuf sources. A `<resources>` entry copies t
 
 ### JSON Schema Tests
 
-- `ProtobufSchemaTest.java` — 15 tests covering `ProtobufSchema.generate()`:
-  - allScalarTypes: all 15 scalar types mapped to correct JSON Schema types
+- `ProtobufSchemaTest.java` — 16 tests covering `ProtobufSchema.generate()`:
+  - allScalarTypes: all 15 scalar types mapped to correct JSON Schema types (including format/contentEncoding)
   - repeatedScalars: repeated fields → array with items
-  - nestedMessages: nested objects, repeated nested, enums
+  - nestedMessages: nested objects with title, repeated nested, enums with title
   - recursiveMessages: $defs/$ref for self-referential types
   - oneofFields: all oneof variants in properties
   - mapFields: string/int/message map values → additionalProperties
-  - wrapperTypes: all 9 wrapper types unwrapped
-  - timestampType: Timestamp → string with date-time format
-  - durationType: Duration → string
-  - fieldMaskType: FieldMask → string
-  - structValueListValue: Struct/Value/ListValue → object/any/array
-  - anyType: Any → object with required @type
+  - wrapperTypes: all 9 wrapper types unwrapped (including format on int64/uint64, contentEncoding on bytes)
+  - timestampType: Timestamp → string with date-time format + description
+  - durationType: Duration → string with description
+  - fieldMaskType: FieldMask → string with description
+  - structValueListValue: Struct/Value/ListValue → object/any/array with descriptions
+  - anyType: Any → object with required @type + description
   - emptyType: Empty → object
   - customJsonName: json_name annotation used as property key
   - generateFromClass: Class-based API convenience method
+  - protoCommentsFromGeneratedRegistry: verifies proto comments from generated `*Comments` classes appear as `description` (messages, enums, no-comment → null)
 
 ## Dependencies
 
