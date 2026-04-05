@@ -2,7 +2,6 @@ package io.suboptimal.buffjson.internal;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,9 +57,6 @@ public final class WellKnownTypes {
 			"google.protobuf.Int64Value", "google.protobuf.UInt64Value", "google.protobuf.Int32Value",
 			"google.protobuf.UInt32Value", "google.protobuf.BoolValue", "google.protobuf.StringValue",
 			"google.protobuf.BytesValue");
-
-	private static final DateTimeFormatter RFC3339 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
-			.withZone(ZoneOffset.UTC);
 
 	static final Base64.Encoder BASE64 = Base64.getEncoder();
 
@@ -158,21 +154,35 @@ public final class WellKnownTypes {
 
 	/**
 	 * Writes a Timestamp directly from typed seconds/nanos, bypassing descriptor
-	 * lookup and reflection. Used by generated encoders that know the field type at
-	 * generation time.
+	 * lookup and reflection. Formats into a reusable {@code byte[]} and writes via
+	 * {@code writeStringLatin1} to avoid String allocation. Used by generated
+	 * encoders that know the field type at generation time.
 	 */
 	public static void writeTimestampDirect(JSONWriter jsonWriter, long seconds, int nanos) {
-		Instant instant = Instant.ofEpochSecond(seconds, nanos);
-		StringBuilder sb = new StringBuilder(30);
-		RFC3339.formatTo(instant, sb);
-		if (nanos == 0) {
-			sb.append('Z');
-		} else {
-			sb.append('.');
-			appendNanos(sb, nanos);
-			sb.append('Z');
+		// Max: "yyyy-MM-ddTHH:mm:ss.nnnnnnnnnZ" = 30 bytes
+		byte[] buf = new byte[30];
+		var zdt = Instant.ofEpochSecond(seconds, nanos).atOffset(ZoneOffset.UTC);
+		int off = 0;
+		off = writeYear(buf, off, zdt.getYear());
+		buf[off++] = '-';
+		off = write2Digits(buf, off, zdt.getMonthValue());
+		buf[off++] = '-';
+		off = write2Digits(buf, off, zdt.getDayOfMonth());
+		buf[off++] = 'T';
+		off = write2Digits(buf, off, zdt.getHour());
+		buf[off++] = ':';
+		off = write2Digits(buf, off, zdt.getMinute());
+		buf[off++] = ':';
+		off = write2Digits(buf, off, zdt.getSecond());
+		if (nanos != 0) {
+			buf[off++] = '.';
+			off = appendNanosBytes(buf, off, nanos);
 		}
-		jsonWriter.writeString(sb.toString());
+		buf[off++] = 'Z';
+		if (off < buf.length) {
+			buf = java.util.Arrays.copyOf(buf, off);
+		}
+		jsonWriter.writeStringLatin1(buf);
 	}
 
 	private static void writeDuration(JSONWriter jsonWriter, Message message) {
@@ -188,19 +198,48 @@ public final class WellKnownTypes {
 	 * generation time.
 	 */
 	public static void writeDurationDirect(JSONWriter jsonWriter, long seconds, int nanos) {
-		StringBuilder sb = new StringBuilder(20);
+		// Max: "-9223372036854775807.999999999s" = 31 bytes
+		byte[] buf = new byte[31];
+		int off = 0;
 		if (seconds < 0 || nanos < 0) {
-			sb.append('-');
+			buf[off++] = '-';
 			seconds = Math.abs(seconds);
 			nanos = Math.abs(nanos);
 		}
-		sb.append(seconds);
+		off = writeLong(buf, off, seconds);
 		if (nanos != 0) {
-			sb.append('.');
-			appendNanos(sb, nanos);
+			buf[off++] = '.';
+			off = appendNanosBytes(buf, off, nanos);
 		}
-		sb.append('s');
-		jsonWriter.writeString(sb.toString());
+		buf[off++] = 's';
+		if (off < buf.length) {
+			buf = java.util.Arrays.copyOf(buf, off);
+		}
+		jsonWriter.writeStringLatin1(buf);
+	}
+
+	/**
+	 * Writes a long value as ASCII digits into a byte array. Returns the new
+	 * offset.
+	 */
+	private static int writeLong(byte[] buf, int off, long value) {
+		if (value == 0) {
+			buf[off] = '0';
+			return off + 1;
+		}
+		// Write digits in reverse, then flip
+		int start = off;
+		while (value > 0) {
+			buf[off++] = (byte) (value % 10 + '0');
+			value /= 10;
+		}
+		// Reverse the digits
+		for (int i = start, j = off - 1; i < j; i++, j--) {
+			byte tmp = buf[i];
+			buf[i] = buf[j];
+			buf[j] = tmp;
+		}
+		return off;
 	}
 
 	private static void writeFieldMask(JSONWriter jsonWriter, Message message) {
@@ -299,50 +338,47 @@ public final class WellKnownTypes {
 		});
 	}
 
+	/** Writes a 4-digit year into a byte array. Returns the new offset. */
+	private static int writeYear(byte[] buf, int off, int year) {
+		buf[off] = (byte) (year / 1000 + '0');
+		buf[off + 1] = (byte) (year / 100 % 10 + '0');
+		buf[off + 2] = (byte) (year / 10 % 10 + '0');
+		buf[off + 3] = (byte) (year % 10 + '0');
+		return off + 4;
+	}
+
 	/**
-	 * Appends nanos as 3, 6, or 9 digits to the StringBuilder. Protobuf convention:
-	 * use minimum group size (millis/micros/nanos) to represent the value.
+	 * Writes a zero-padded 2-digit number into a byte array. Returns the new
+	 * offset.
 	 */
-	private static void appendNanos(StringBuilder sb, int nanos) {
+	private static int write2Digits(byte[] buf, int off, int value) {
+		buf[off] = (byte) (value / 10 + '0');
+		buf[off + 1] = (byte) (value % 10 + '0');
+		return off + 2;
+	}
+
+	/**
+	 * Appends nanos as 3, 6, or 9 ASCII digits into a byte array. Returns the new
+	 * offset.
+	 */
+	private static int appendNanosBytes(byte[] buf, int off, int nanos) {
+		int digits;
+		int value;
 		if (nanos % 1_000_000 == 0) {
-			int millis = nanos / 1_000_000;
-			if (millis < 10)
-				sb.append("00");
-			else if (millis < 100)
-				sb.append('0');
-			sb.append(millis);
+			digits = 3;
+			value = nanos / 1_000_000;
 		} else if (nanos % 1_000 == 0) {
-			int micros = nanos / 1_000;
-			if (micros < 10)
-				sb.append("00000");
-			else if (micros < 100)
-				sb.append("0000");
-			else if (micros < 1000)
-				sb.append("000");
-			else if (micros < 10000)
-				sb.append("00");
-			else if (micros < 100000)
-				sb.append('0');
-			sb.append(micros);
+			digits = 6;
+			value = nanos / 1_000;
 		} else {
-			if (nanos < 10)
-				sb.append("00000000");
-			else if (nanos < 100)
-				sb.append("0000000");
-			else if (nanos < 1000)
-				sb.append("000000");
-			else if (nanos < 10000)
-				sb.append("00000");
-			else if (nanos < 100000)
-				sb.append("0000");
-			else if (nanos < 1000000)
-				sb.append("000");
-			else if (nanos < 10000000)
-				sb.append("00");
-			else if (nanos < 100000000)
-				sb.append('0');
-			sb.append(nanos);
+			digits = 9;
+			value = nanos;
 		}
+		for (int i = digits - 1; i >= 0; i--) {
+			buf[off + i] = (byte) (value % 10 + '0');
+			value /= 10;
+		}
+		return off + digits;
 	}
 
 	/**
