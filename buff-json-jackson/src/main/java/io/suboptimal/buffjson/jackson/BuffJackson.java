@@ -1,7 +1,9 @@
 package io.suboptimal.buffjson.jackson;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
 
@@ -43,8 +45,11 @@ public final class BuffJackson {
 	/**
 	 * Pre-configured ObjectMapper with {@link ProtobufJacksonModule} registered (no
 	 * TypeRegistry). Thread-safe, shared across all static method calls.
+	 * {@link StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION} is enabled for fast
+	 * raw-extraction deserialization.
 	 */
-	private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper().registerModule(new ProtobufJacksonModule());
+	private static final ObjectMapper DEFAULT_MAPPER = JsonMapper.builder()
+			.enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION).addModule(new ProtobufJacksonModule()).build();
 
 	private BuffJackson() {
 	}
@@ -98,9 +103,47 @@ public final class BuffJackson {
 	}
 
 	/**
+	 * Creates an {@link ObjectMapper} pre-configured with
+	 * {@link ProtobufJacksonModule} and
+	 * {@link StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION} enabled for optimal
+	 * deserialization performance.
+	 *
+	 * <p>
+	 * This is the recommended way to create an ObjectMapper for protobuf JSON when
+	 * you need your own instance (e.g., to register additional modules or configure
+	 * features). The returned mapper is fully configured and thread-safe.
+	 *
+	 * @return a new ObjectMapper configured for protobuf JSON
+	 */
+	public static ObjectMapper createMapper() {
+		return JsonMapper.builder().enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
+				.addModule(new ProtobufJacksonModule()).build();
+	}
+
+	/**
+	 * Creates an {@link ObjectMapper} pre-configured with
+	 * {@link ProtobufJacksonModule} (with TypeRegistry) and
+	 * {@link StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION} enabled.
+	 *
+	 * @param registry
+	 *            TypeRegistry with descriptors for types packed in Any
+	 * @return a new ObjectMapper configured for protobuf JSON with Any support
+	 */
+	public static ObjectMapper createMapper(TypeRegistry registry) {
+		return JsonMapper.builder().enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
+				.addModule(new ProtobufJacksonModule(registry)).build();
+	}
+
+	/**
 	 * Creates a new {@link ProtobufJacksonModule} without TypeRegistry. Register
 	 * with your own ObjectMapper via
 	 * {@code mapper.registerModule(BuffJackson.module())}.
+	 *
+	 * <p>
+	 * <b>Important:</b> When creating your own ObjectMapper, enable
+	 * {@link StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION} for optimal
+	 * deserialization performance. Without it, a slower fallback path is used. Or
+	 * use {@link #createMapper()} which enables it automatically.
 	 *
 	 * @return a new module instance
 	 */
@@ -112,6 +155,11 @@ public final class BuffJackson {
 	 * Creates a new {@link ProtobufJacksonModule} with the given TypeRegistry for
 	 * {@code google.protobuf.Any} support. Required when messages contain Any
 	 * fields.
+	 *
+	 * <p>
+	 * <b>Important:</b> When creating your own ObjectMapper, enable
+	 * {@link StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION} for optimal
+	 * deserialization performance. Or use {@link #createMapper(TypeRegistry)}.
 	 *
 	 * @param registry
 	 *            TypeRegistry with descriptors for types packed in Any

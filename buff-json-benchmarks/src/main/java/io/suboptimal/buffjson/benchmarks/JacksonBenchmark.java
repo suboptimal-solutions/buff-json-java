@@ -3,7 +3,9 @@ package io.suboptimal.buffjson.benchmarks;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.protobuf.util.JsonFormat;
 import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 
@@ -32,8 +34,8 @@ public class JacksonBenchmark {
 	private static final int MASK = POOL_SIZE - 1;
 
 	private static final ObjectMapper JACKSON_MAPPER = new ObjectMapper().registerModule(new ProtobufModule());
-	private static final ObjectMapper BUFF_JACKSON_MAPPER = new ObjectMapper()
-			.registerModule(new ProtobufJacksonModule());
+	private static final ObjectMapper BUFF_JACKSON_MAPPER = JsonMapper.builder()
+			.enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION).addModule(new ProtobufJacksonModule()).build();
 
 	private SimpleMessage[] simpleMessages;
 	private ComplexMessage[] complexMessages;

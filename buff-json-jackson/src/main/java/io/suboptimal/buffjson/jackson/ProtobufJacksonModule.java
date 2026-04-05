@@ -20,11 +20,28 @@ import io.suboptimal.buffjson.BuffJsonEncoder;
  * serialization output is identical to
  * {@code JsonFormat.printer().omittingInsignificantWhitespace().print()}.
  *
+ * <h3>Required configuration</h3>
+ *
+ * <p>
+ * For optimal deserialization performance, enable
+ * {@link com.fasterxml.jackson.core.StreamReadFeature#INCLUDE_SOURCE_IN_LOCATION}
+ * on the ObjectMapper. This allows the deserializer to extract raw JSON
+ * substrings directly, avoiding expensive tree-to-string round-trips. Without
+ * this feature, a slower fallback path is used and a warning is logged.
+ *
+ * <pre>{@code
+ * // Recommended: use BuffJackson.createMapper()
+ * ObjectMapper mapper = BuffJackson.createMapper();
+ *
+ * // Or configure manually
+ * ObjectMapper mapper = JsonMapper.builder().enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
+ * 		.addModule(new ProtobufJacksonModule()).build();
+ * }</pre>
+ *
  * <h3>Basic usage</h3>
  *
  * <pre>{@code
- * ObjectMapper mapper = new ObjectMapper();
- * mapper.registerModule(new ProtobufJacksonModule());
+ * ObjectMapper mapper = BuffJackson.createMapper();
  *
  * // Protobuf messages work like any other Jackson type
  * String json = mapper.writeValueAsString(myProtoMessage);
@@ -43,7 +60,7 @@ import io.suboptimal.buffjson.BuffJsonEncoder;
  * {@link TypeRegistry} to the constructor:
  *
  * <pre>{@code
- * mapper.registerModule(new ProtobufJacksonModule(TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build()));
+ * ObjectMapper mapper = BuffJackson.createMapper(TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build());
  * }</pre>
  *
  * <h3>Architecture</h3>
@@ -60,9 +77,9 @@ import io.suboptimal.buffjson.BuffJsonEncoder;
  * <p>
  * The serializer uses
  * {@link com.fasterxml.jackson.core.JsonGenerator#writeRawValue(String)} to
- * inject the pre-serialized JSON from {@link Encoder#encode}. This means
- * {@code ObjectMapper.valueToTree()} does not produce a structured tree for
- * proto messages — use {@code writeValueAsString()} + {@code readTree()}
+ * inject the pre-serialized JSON from {@link BuffJsonEncoder#encode}. This
+ * means {@code ObjectMapper.valueToTree()} does not produce a structured tree
+ * for proto messages — use {@code writeValueAsString()} + {@code readTree()}
  * instead.
  *
  * @see BuffJackson
