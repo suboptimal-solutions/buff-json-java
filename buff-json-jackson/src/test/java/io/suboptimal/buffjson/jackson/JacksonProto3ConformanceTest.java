@@ -32,7 +32,7 @@ import io.suboptimal.buffjson.jackson.proto.*;
  * <li><b>OptionalAndCustomTests</b> — explicit presence (optional keyword),
  * custom json_name, recursive messages
  * <li><b>RoundtripTests</b> — encode→decode→equals for scalars, complex
- * messages, WKTs, and cross-library compatibility (BuffJackson vs BuffJson)
+ * messages, WKTs, and cross-library compatibility (Jackson module vs BuffJson)
  * </ul>
  */
 class JacksonProto3ConformanceTest {
@@ -302,14 +302,14 @@ class JacksonProto3ConformanceTest {
 
 		@Test
 		void crossLibraryCompatibility() throws Exception {
-			// Encode with BuffJackson, decode with BuffJson (and vice versa)
+			// Encode with Jackson module, decode with BuffJson (and vice versa)
 			var original = JacksonTestScalars.newBuilder().setInt32Val(42).setStringVal("cross").build();
 
-			String jacksonJson = BuffJackson.encode(original);
+			String jacksonJson = MAPPER.writeValueAsString(original);
 			String buffJson = io.suboptimal.buffjson.BuffJson.encode(original);
 			assertEquals(buffJson, jacksonJson, "Jackson and BuffJson output must match");
 
-			JacksonTestScalars fromJackson = BuffJackson.decode(jacksonJson, JacksonTestScalars.class);
+			JacksonTestScalars fromJackson = MAPPER.readValue(jacksonJson, JacksonTestScalars.class);
 			JacksonTestScalars fromBuff = io.suboptimal.buffjson.BuffJson.decode(buffJson, JacksonTestScalars.class);
 			assertEquals(original, fromJackson);
 			assertEquals(original, fromBuff);

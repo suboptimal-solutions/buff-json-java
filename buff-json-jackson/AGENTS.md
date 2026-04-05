@@ -13,7 +13,6 @@ io.suboptimal.buffjson.jackson/
   ProtobufJacksonModule.java       # Jackson Module — registers serializers/deserializers
   ProtobufMessageSerializer.java   # JsonSerializer<Message> — wraps BuffJsonEncoder.encode()
   ProtobufMessageDeserializer.java # JsonDeserializer<Message> — wraps BuffJsonDecoder.decode()
-  BuffJackson.java                 # Convenience static API with pre-configured ObjectMapper
 ```
 
 ## How It Works

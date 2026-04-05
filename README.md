@@ -128,20 +128,20 @@ record ApiResponse(String status, MyMessage data) {}
 String responseJson = mapper.writeValueAsString(new ApiResponse("ok", msg));
 ```
 
+For optimal deserialization performance, enable `StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` — this lets the deserializer extract raw JSON substrings directly instead of streaming tokens through a buffer:
+
+```java
+ObjectMapper mapper = JsonMapper.builder()
+    .enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
+    .addModule(new ProtobufJacksonModule())
+    .build();
+```
+
 For `google.protobuf.Any` support, pass a `TypeRegistry`:
 
 ```java
 mapper.registerModule(new ProtobufJacksonModule(
     TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build()));
-```
-
-Or use the convenience API (pre-configured `ObjectMapper`):
-
-```java
-import io.suboptimal.buffjson.jackson.BuffJackson;
-
-String json = BuffJackson.encode(myProtoMessage);
-MyMessage msg = BuffJackson.decode(json, MyMessage.class);
 ```
 
 ### JSON Schema generation
