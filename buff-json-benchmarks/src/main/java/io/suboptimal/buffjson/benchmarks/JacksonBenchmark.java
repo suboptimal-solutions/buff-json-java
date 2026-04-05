@@ -13,6 +13,8 @@ import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import org.openjdk.jmh.annotations.*;
 
 import io.suboptimal.buffjson.BuffJson;
+import io.suboptimal.buffjson.BuffJsonDecoder;
+import io.suboptimal.buffjson.BuffJsonEncoder;
 import io.suboptimal.buffjson.jackson.BuffJsonJacksonModule;
 import io.suboptimal.buffjson.proto.ComplexMessage;
 import io.suboptimal.buffjson.proto.SimpleMessage;
@@ -33,6 +35,8 @@ public class JacksonBenchmark {
 
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
+	private static final BuffJsonEncoder BUFF_JSON = BuffJson.encoder();
+	private static final BuffJsonDecoder BUFF_JSON_DECODER = BuffJson.decoder();
 
 	private static final ObjectMapper JACKSON_MAPPER = JsonMapper.builder()
 			.addModule(new ProtobufModule(ProtobufJacksonConfig.builder().properUnsignedNumberSerialization(true)
@@ -68,7 +72,7 @@ public class JacksonBenchmark {
 
 	@Benchmark
 	public String simpleEncodeBuffJson() {
-		return BuffJson.encode(simpleMessages[index++ & MASK]);
+		return BUFF_JSON.encode(simpleMessages[index++ & MASK]);
 	}
 
 	@Benchmark
@@ -85,7 +89,7 @@ public class JacksonBenchmark {
 
 	@Benchmark
 	public String complexEncodeBuffJson() {
-		return BuffJson.encode(complexMessages[index++ & MASK]);
+		return BUFF_JSON.encode(complexMessages[index++ & MASK]);
 	}
 
 	@Benchmark
@@ -102,7 +106,7 @@ public class JacksonBenchmark {
 
 	@Benchmark
 	public SimpleMessage simpleDecodeBuffJson() {
-		return BuffJson.decode(simpleJsonStrings[index++ & MASK], SimpleMessage.class);
+		return BUFF_JSON_DECODER.decode(simpleJsonStrings[index++ & MASK], SimpleMessage.class);
 	}
 
 	@Benchmark
@@ -119,7 +123,7 @@ public class JacksonBenchmark {
 
 	@Benchmark
 	public ComplexMessage complexDecodeBuffJson() {
-		return BuffJson.decode(complexJsonStrings[index++ & MASK], ComplexMessage.class);
+		return BUFF_JSON_DECODER.decode(complexJsonStrings[index++ & MASK], ComplexMessage.class);
 	}
 
 	@Benchmark

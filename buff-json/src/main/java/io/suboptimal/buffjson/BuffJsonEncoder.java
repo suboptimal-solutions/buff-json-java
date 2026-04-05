@@ -1,5 +1,8 @@
 package io.suboptimal.buffjson;
 
+import java.io.IOException;
+import java.io.OutputStream;
+
 import com.alibaba.fastjson2.JSON;
 import com.google.protobuf.Message;
 import com.google.protobuf.MessageOrBuilder;
@@ -8,87 +11,104 @@ import com.google.protobuf.TypeRegistry;
 /**
  * Configurable encoder for protobuf-to-JSON serialization.
  *
- * <p>
- * Instances are immutable and thread-safe — safe to cache and reuse:
- *
  * <pre>{@code
- * private static final BuffJsonEncoder ENCODER = BuffJson.encoder().withTypeRegistry(registry);
+ * BuffJsonEncoder encoder = BuffJson.encoder().setTypeRegistry(registry);
  *
- * String json = ENCODER.encode(message);
+ * String json = encoder.encode(message);
+ * byte[] bytes = encoder.encodeToBytes(message);
+ * encoder.encode(message, outputStream);
  * }</pre>
  *
  * @see BuffJson#encoder()
  */
 public final class BuffJsonEncoder {
 
-	private final TypeRegistry typeRegistry;
-	private final boolean useGeneratedEncoders;
+	private TypeRegistry typeRegistry;
+	private boolean useGeneratedEncoders = true;
 
-	BuffJsonEncoder(TypeRegistry typeRegistry) {
-		this(typeRegistry, true);
+	BuffJsonEncoder() {
 	}
 
-	private BuffJsonEncoder(TypeRegistry typeRegistry, boolean useGeneratedEncoders) {
-		this.typeRegistry = typeRegistry;
-		this.useGeneratedEncoders = useGeneratedEncoders;
+	public BuffJsonEncoder setTypeRegistry(TypeRegistry registry) {
+		this.typeRegistry = registry;
+		return this;
 	}
 
-	/**
-	 * Sets the {@link TypeRegistry} for resolving {@code google.protobuf.Any}
-	 * fields. Required when the message (or any nested message) contains Any
-	 * fields.
-	 *
-	 * @param registry
-	 *            the type registry containing descriptors for types packed in Any
-	 * @return a new BuffJsonEncoder with the registry configured
-	 */
-	public BuffJsonEncoder withTypeRegistry(TypeRegistry registry) {
-		return new BuffJsonEncoder(registry, useGeneratedEncoders);
+	public TypeRegistry getTypeRegistry() {
+		return typeRegistry;
 	}
 
-	/**
-	 * Controls whether generated encoders (from {@code buff-json-protoc-plugin})
-	 * are used when available. Defaults to {@code true}.
-	 *
-	 * <p>
-	 * Setting to {@code false} forces the runtime reflection-based path, useful for
-	 * benchmarking or testing both paths independently.
-	 *
-	 * @return a new BuffJsonEncoder with the setting applied
-	 */
-	public BuffJsonEncoder withGeneratedEncoders(boolean enabled) {
-		return new BuffJsonEncoder(typeRegistry, enabled);
+	public BuffJsonEncoder setGeneratedEncoders(boolean enabled) {
+		this.useGeneratedEncoders = enabled;
+		return this;
+	}
+
+	public boolean getGeneratedEncoders() {
+		return useGeneratedEncoders;
 	}
 
 	/**
-	 * Encodes a Protocol Buffer message to its proto3 JSON representation.
-	 *
-	 * @param message
-	 *            the protobuf message or builder to encode
-	 * @return compact JSON string (no insignificant whitespace)
+	 * Encodes a Protocol Buffer message to its proto3 JSON string.
 	 */
 	public String encode(MessageOrBuilder message) {
-		Message msg;
-		if (message instanceof Message m) {
-			msg = m;
-		} else {
-			msg = ((Message.Builder) message).buildPartial();
+		Message msg = toMessage(message);
+		setupThreadLocals();
+		try {
+			return JSON.toJSONString(msg);
+		} finally {
+			clearThreadLocals();
 		}
+	}
+
+	/**
+	 * Encodes a Protocol Buffer message to a UTF-8 JSON byte array.
+	 */
+	public byte[] encodeToBytes(MessageOrBuilder message) {
+		Message msg = toMessage(message);
+		setupThreadLocals();
+		try {
+			return JSON.toJSONBytes(msg);
+		} finally {
+			clearThreadLocals();
+		}
+	}
+
+	/**
+	 * Encodes a Protocol Buffer message and writes the JSON directly to an
+	 * {@link OutputStream}.
+	 */
+	public void encode(MessageOrBuilder message, OutputStream out) throws IOException {
+		Message msg = toMessage(message);
+		setupThreadLocals();
+		try {
+			JSON.writeTo(out, msg);
+		} finally {
+			clearThreadLocals();
+		}
+	}
+
+	private static Message toMessage(MessageOrBuilder message) {
+		if (message instanceof Message m) {
+			return m;
+		}
+		return ((Message.Builder) message).buildPartial();
+	}
+
+	private void setupThreadLocals() {
 		if (typeRegistry != null) {
 			BuffJson.ACTIVE_REGISTRY.set(typeRegistry);
 		}
 		if (!useGeneratedEncoders) {
-			BuffJson.SKIP_GENERATED_ENCODERS.set(Boolean.TRUE);
+			BuffJson.SKIP_GENERATED.set(Boolean.TRUE);
 		}
-		try {
-			return JSON.toJSONString(msg);
-		} finally {
-			if (typeRegistry != null) {
-				BuffJson.ACTIVE_REGISTRY.remove();
-			}
-			if (!useGeneratedEncoders) {
-				BuffJson.SKIP_GENERATED_ENCODERS.remove();
-			}
+	}
+
+	private void clearThreadLocals() {
+		if (typeRegistry != null) {
+			BuffJson.ACTIVE_REGISTRY.remove();
+		}
+		if (!useGeneratedEncoders) {
+			BuffJson.SKIP_GENERATED.remove();
 		}
 	}
 }

@@ -475,13 +475,16 @@ class BuffJsonJacksonTest {
 	@Nested
 	class CrossLibraryCompatibility {
 
+		private static final BuffJsonEncoder ENCODER = BuffJson.encoder();
+		private static final BuffJsonDecoder DECODER = BuffJson.decoder();
+
 		@Test
 		void jacksonEncodeBuffJsonDecode() throws Exception {
 			var original = TestAllScalars.newBuilder().setOptionalInt32(42).setOptionalString("cross")
 					.setOptionalBool(true).build();
 
 			String jacksonJson = MAPPER.writeValueAsString(original);
-			TestAllScalars fromBuffJson = BuffJson.decode(jacksonJson, TestAllScalars.class);
+			TestAllScalars fromBuffJson = DECODER.decode(jacksonJson, TestAllScalars.class);
 			assertEquals(original, fromBuffJson);
 		}
 
@@ -490,7 +493,7 @@ class BuffJsonJacksonTest {
 			var original = TestAllScalars.newBuilder().setOptionalInt32(42).setOptionalString("cross")
 					.setOptionalBool(true).build();
 
-			String buffJson = BuffJson.encode(original);
+			String buffJson = ENCODER.encode(original);
 			TestAllScalars fromJackson = MAPPER.readValue(buffJson, TestAllScalars.class);
 			assertEquals(original, fromJackson);
 		}
@@ -498,7 +501,7 @@ class BuffJsonJacksonTest {
 		@Test
 		void outputsMatch() throws Exception {
 			var original = TestAllScalars.newBuilder().setOptionalInt32(42).setOptionalString("match").build();
-			assertEquals(BuffJson.encode(original), MAPPER.writeValueAsString(original));
+			assertEquals(ENCODER.encode(original), MAPPER.writeValueAsString(original));
 		}
 	}
 

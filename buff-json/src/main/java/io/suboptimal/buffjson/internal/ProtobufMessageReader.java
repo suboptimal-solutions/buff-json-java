@@ -74,7 +74,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	}
 
 	private static Message tryGeneratedDecode(JSONReader reader, Descriptor descriptor) {
-		if (GeneratedDecoderRegistry.hasDecoders() && Boolean.TRUE != BuffJson.SKIP_GENERATED_DECODERS.get()) {
+		if (GeneratedDecoderRegistry.hasDecoders() && Boolean.TRUE != BuffJson.SKIP_GENERATED.get()) {
 			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(descriptor);
 			if (decoder != null) {
 				return decoder.readMessage(reader);

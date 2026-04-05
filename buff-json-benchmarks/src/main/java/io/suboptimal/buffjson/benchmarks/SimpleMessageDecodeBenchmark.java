@@ -26,7 +26,8 @@ public class SimpleMessageDecodeBenchmark {
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
 	private static final JsonFormat.Parser PROTO_PARSER = JsonFormat.parser();
-	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().withGeneratedDecoders(false);
+	private static final BuffJsonDecoder BUFF_JSON_DECODER = BuffJson.decoder();
+	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().setGeneratedDecoders(false);
 
 	private String[] jsonStrings;
 	private int index;
@@ -43,7 +44,7 @@ public class SimpleMessageDecodeBenchmark {
 
 	@Benchmark
 	public SimpleMessage buffJsonCompiled() {
-		return BuffJson.decode(jsonStrings[index++ & MASK], SimpleMessage.class);
+		return BUFF_JSON_DECODER.decode(jsonStrings[index++ & MASK], SimpleMessage.class);
 	}
 
 	@Benchmark

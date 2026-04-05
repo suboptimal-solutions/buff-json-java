@@ -37,7 +37,8 @@ public class CeilingBenchmark {
 
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
-	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().withGeneratedEncoders(false);
+	private static final BuffJsonEncoder BUFF_JSON = BuffJson.encoder();
+	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().setGeneratedEncoders(false);
 
 	private ComplexMessage[] protoMessages;
 	private ComplexMessagePojo[] pojoMessages;
@@ -69,7 +70,7 @@ public class CeilingBenchmark {
 
 	@Benchmark
 	public String buffJsonCompiled() {
-		return BuffJson.encode(protoMessages[index++ & MASK]);
+		return BUFF_JSON.encode(protoMessages[index++ & MASK]);
 	}
 
 	@Benchmark

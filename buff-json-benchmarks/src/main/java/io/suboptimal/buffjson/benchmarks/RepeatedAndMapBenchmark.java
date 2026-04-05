@@ -27,7 +27,8 @@ public class RepeatedAndMapBenchmark {
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
 	private static final JsonFormat.Printer PROTO_PRINTER = JsonFormat.printer();
-	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().withGeneratedEncoders(false);
+	private static final BuffJsonEncoder BUFF_JSON = BuffJson.encoder();
+	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().setGeneratedEncoders(false);
 
 	private BenchRepeatedHeavy[] randomRepeated;
 	private BenchMapHeavy[] randomMaps;
@@ -41,7 +42,7 @@ public class RepeatedAndMapBenchmark {
 
 	@Benchmark
 	public String repeatedCompiled() {
-		return BuffJson.encode(randomRepeated[index++ & MASK]);
+		return BUFF_JSON.encode(randomRepeated[index++ & MASK]);
 	}
 
 	@Benchmark
@@ -56,7 +57,7 @@ public class RepeatedAndMapBenchmark {
 
 	@Benchmark
 	public String mapCompiled() {
-		return BuffJson.encode(randomMaps[index++ & MASK]);
+		return BUFF_JSON.encode(randomMaps[index++ & MASK]);
 	}
 
 	@Benchmark

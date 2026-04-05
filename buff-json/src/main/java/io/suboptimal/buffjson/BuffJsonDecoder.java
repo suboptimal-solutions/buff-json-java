@@ -1,5 +1,7 @@
 package io.suboptimal.buffjson;
 
+import java.io.InputStream;
+
 import com.alibaba.fastjson2.JSON;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
@@ -7,65 +9,44 @@ import com.google.protobuf.TypeRegistry;
 /**
  * Configurable decoder for JSON-to-protobuf deserialization.
  *
- * <p>
- * Instances are immutable and thread-safe — safe to cache and reuse:
- *
  * <pre>{@code
- * private static final BuffJsonDecoder DECODER = BuffJson.decoder().withTypeRegistry(registry);
+ * BuffJsonDecoder decoder = BuffJson.decoder().setTypeRegistry(registry);
  *
- * MyMessage msg = DECODER.decode(json, MyMessage.class);
+ * MyMessage msg = decoder.decode(json, MyMessage.class);
+ * MyMessage msg = decoder.decode(bytes, MyMessage.class);
+ * MyMessage msg = decoder.decode(inputStream, MyMessage.class);
  * }</pre>
  *
  * @see BuffJson#decoder()
  */
 public final class BuffJsonDecoder {
 
-	private final TypeRegistry typeRegistry;
-	private final boolean useGeneratedDecoders;
+	private TypeRegistry typeRegistry;
+	private boolean useGeneratedDecoders = true;
 
-	BuffJsonDecoder(TypeRegistry typeRegistry) {
-		this(typeRegistry, true);
+	BuffJsonDecoder() {
 	}
 
-	private BuffJsonDecoder(TypeRegistry typeRegistry, boolean useGeneratedDecoders) {
-		this.typeRegistry = typeRegistry;
-		this.useGeneratedDecoders = useGeneratedDecoders;
+	public BuffJsonDecoder setTypeRegistry(TypeRegistry registry) {
+		this.typeRegistry = registry;
+		return this;
 	}
 
-	/**
-	 * Sets the {@link TypeRegistry} for resolving {@code google.protobuf.Any}
-	 * fields. Required when the JSON (or any nested content) contains Any fields.
-	 *
-	 * @param registry
-	 *            the type registry containing descriptors for types packed in Any
-	 * @return a new BuffJsonDecoder with the registry configured
-	 */
-	public BuffJsonDecoder withTypeRegistry(TypeRegistry registry) {
-		return new BuffJsonDecoder(registry, useGeneratedDecoders);
+	public TypeRegistry getTypeRegistry() {
+		return typeRegistry;
 	}
 
-	/**
-	 * Controls whether generated decoders (from {@code buff-json-protoc-plugin})
-	 * are used when available. Defaults to {@code true}.
-	 *
-	 * <p>
-	 * Setting to {@code false} forces the runtime reflection-based path, useful for
-	 * benchmarking or testing both paths independently.
-	 *
-	 * @return a new BuffJsonDecoder with the setting applied
-	 */
-	public BuffJsonDecoder withGeneratedDecoders(boolean enabled) {
-		return new BuffJsonDecoder(typeRegistry, enabled);
+	public BuffJsonDecoder setGeneratedDecoders(boolean enabled) {
+		this.useGeneratedDecoders = enabled;
+		return this;
+	}
+
+	public boolean getGeneratedDecoders() {
+		return useGeneratedDecoders;
 	}
 
 	/**
 	 * Decodes a proto3 JSON string to a Protocol Buffer message.
-	 *
-	 * @param json
-	 *            the JSON string to decode
-	 * @param messageClass
-	 *            the target protobuf message class
-	 * @return the decoded protobuf message
 	 */
 	public <T extends Message> T decode(String json, Class<T> messageClass) {
 		setupThreadLocals();
@@ -77,19 +58,8 @@ public final class BuffJsonDecoder {
 	}
 
 	/**
-	 * Decodes a proto3 JSON substring to a Protocol Buffer message without
-	 * allocating a new String. FastJson2 reads the backing storage of the original
-	 * String directly.
-	 *
-	 * @param json
-	 *            the JSON string containing the message
-	 * @param offset
-	 *            start position within the string
-	 * @param length
-	 *            number of characters to parse
-	 * @param messageClass
-	 *            the target protobuf message class
-	 * @return the decoded protobuf message
+	 * Decodes a proto3 JSON substring without allocating a new String. FastJson2
+	 * reads the backing storage of the original String directly.
 	 */
 	public <T extends Message> T decode(String json, int offset, int length, Class<T> messageClass) {
 		setupThreadLocals();
@@ -101,18 +71,20 @@ public final class BuffJsonDecoder {
 	}
 
 	/**
-	 * Decodes proto3 JSON from a byte array slice to a Protocol Buffer message.
-	 * Zero-copy — FastJson2 reads directly from the provided array.
-	 *
-	 * @param json
-	 *            the byte array containing UTF-8 JSON
-	 * @param offset
-	 *            start position within the array
-	 * @param length
-	 *            number of bytes to parse
-	 * @param messageClass
-	 *            the target protobuf message class
-	 * @return the decoded protobuf message
+	 * Decodes a UTF-8 JSON byte array to a Protocol Buffer message.
+	 */
+	public <T extends Message> T decode(byte[] json, Class<T> messageClass) {
+		setupThreadLocals();
+		try {
+			return JSON.parseObject(json, messageClass);
+		} finally {
+			clearThreadLocals();
+		}
+	}
+
+	/**
+	 * Decodes a UTF-8 JSON byte array slice to a Protocol Buffer message. Zero-copy
+	 * — FastJson2 reads directly from the provided array.
 	 */
 	public <T extends Message> T decode(byte[] json, int offset, int length, Class<T> messageClass) {
 		setupThreadLocals();
@@ -123,12 +95,24 @@ public final class BuffJsonDecoder {
 		}
 	}
 
+	/**
+	 * Decodes proto3 JSON from an {@link InputStream} to a Protocol Buffer message.
+	 */
+	public <T extends Message> T decode(InputStream in, Class<T> messageClass) {
+		setupThreadLocals();
+		try {
+			return JSON.parseObject(in, messageClass);
+		} finally {
+			clearThreadLocals();
+		}
+	}
+
 	private void setupThreadLocals() {
 		if (typeRegistry != null) {
 			BuffJson.ACTIVE_REGISTRY.set(typeRegistry);
 		}
 		if (!useGeneratedDecoders) {
-			BuffJson.SKIP_GENERATED_DECODERS.set(Boolean.TRUE);
+			BuffJson.SKIP_GENERATED.set(Boolean.TRUE);
 		}
 	}
 
@@ -137,7 +121,7 @@ public final class BuffJsonDecoder {
 			BuffJson.ACTIVE_REGISTRY.remove();
 		}
 		if (!useGeneratedDecoders) {
-			BuffJson.SKIP_GENERATED_DECODERS.remove();
+			BuffJson.SKIP_GENERATED.remove();
 		}
 	}
 }

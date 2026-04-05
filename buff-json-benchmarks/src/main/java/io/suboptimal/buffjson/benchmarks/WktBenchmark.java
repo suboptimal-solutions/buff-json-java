@@ -27,7 +27,8 @@ public class WktBenchmark {
 	private static final int POOL_SIZE = 1024;
 	private static final int MASK = POOL_SIZE - 1;
 	private static final JsonFormat.Printer PROTO_PRINTER = JsonFormat.printer();
-	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().withGeneratedEncoders(false);
+	private static final BuffJsonEncoder BUFF_JSON = BuffJson.encoder();
+	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().setGeneratedEncoders(false);
 
 	private BenchTimestamps[] randomTimestamps;
 	private BenchStruct[] randomStructs;
@@ -41,7 +42,7 @@ public class WktBenchmark {
 
 	@Benchmark
 	public String timestampCompiled() {
-		return BuffJson.encode(randomTimestamps[index++ & MASK]);
+		return BUFF_JSON.encode(randomTimestamps[index++ & MASK]);
 	}
 
 	@Benchmark
@@ -56,7 +57,7 @@ public class WktBenchmark {
 
 	@Benchmark
 	public String structCompiled() {
-		return BuffJson.encode(randomStructs[index++ & MASK]);
+		return BUFF_JSON.encode(randomStructs[index++ & MASK]);
 	}
 
 	@Benchmark

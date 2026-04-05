@@ -13,8 +13,8 @@ import io.suboptimal.buffjson.proto.*;
 class BuffJsonProto3DecodeConformanceTest {
 
 	private static final JsonFormat.Printer PRINTER = JsonFormat.printer().omittingInsignificantWhitespace();
-	private static final BuffJsonDecoder CODEGEN_DECODER = BuffJson.decoder().withGeneratedDecoders(true);
-	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().withGeneratedDecoders(false);
+	private static final BuffJsonDecoder CODEGEN_DECODER = BuffJson.decoder().setGeneratedDecoders(true);
+	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().setGeneratedDecoders(false);
 
 	/**
 	 * Round-trip test: serialize with JsonFormat.printer(), then deserialize with
@@ -544,8 +544,8 @@ class BuffJsonProto3DecodeConformanceTest {
 		private static final JsonFormat.Printer ANY_PRINTER = JsonFormat.printer().usingTypeRegistry(TYPE_REGISTRY)
 				.omittingInsignificantWhitespace();
 
-		private static final BuffJsonDecoder DECODER = BuffJson.decoder().withTypeRegistry(TYPE_REGISTRY);
-		private static final BuffJsonDecoder RUNTIME_ANY_DECODER = DECODER.withGeneratedDecoders(false);
+		private static final BuffJsonDecoder DECODER = BuffJson.decoder().setTypeRegistry(TYPE_REGISTRY);
+		private static final BuffJsonDecoder RUNTIME_ANY_DECODER = DECODER.setGeneratedDecoders(false);
 
 		private <T extends Message> void assertAnyDecodeMatchesOriginal(T original) throws Exception {
 			String json = ANY_PRINTER.print(original);
@@ -604,7 +604,7 @@ class BuffJsonProto3DecodeConformanceTest {
 					.setOptionalBool(true).build();
 			TestAny original = TestAny.newBuilder().setValue(Any.pack(inner)).build();
 
-			BuffJsonEncoder encoder = BuffJson.encoder().withTypeRegistry(TYPE_REGISTRY);
+			BuffJsonEncoder encoder = BuffJson.encoder().setTypeRegistry(TYPE_REGISTRY);
 			String json = encoder.encode(original);
 
 			TestAny codegen = DECODER.decode(json, TestAny.class);
@@ -620,7 +620,7 @@ class BuffJsonProto3DecodeConformanceTest {
 			Timestamp inner = Timestamp.newBuilder().setSeconds(1711627200).setNanos(123000000).build();
 			TestAny original = TestAny.newBuilder().setValue(Any.pack(inner)).build();
 
-			BuffJsonEncoder encoder = BuffJson.encoder().withTypeRegistry(TYPE_REGISTRY);
+			BuffJsonEncoder encoder = BuffJson.encoder().setTypeRegistry(TYPE_REGISTRY);
 			String json = encoder.encode(original);
 
 			TestAny codegen = DECODER.decode(json, TestAny.class);
@@ -637,7 +637,7 @@ class BuffJsonProto3DecodeConformanceTest {
 			Any wrappedInner = Any.pack(inner);
 			TestAny original = TestAny.newBuilder().setValue(Any.pack(wrappedInner)).build();
 
-			BuffJsonEncoder encoder = BuffJson.encoder().withTypeRegistry(TYPE_REGISTRY);
+			BuffJsonEncoder encoder = BuffJson.encoder().setTypeRegistry(TYPE_REGISTRY);
 			String json = encoder.encode(original);
 
 			TestAny codegen = DECODER.decode(json, TestAny.class);
@@ -698,8 +698,8 @@ class BuffJsonProto3DecodeConformanceTest {
 	@Nested
 	class RoundTrip {
 
-		private static final BuffJsonEncoder CODEGEN_ENCODER = BuffJson.encoder().withGeneratedEncoders(true);
-		private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().withGeneratedEncoders(false);
+		private static final BuffJsonEncoder CODEGEN_ENCODER = BuffJson.encoder().setGeneratedEncoders(true);
+		private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().setGeneratedEncoders(false);
 
 		/** Encode with BuffJson, decode with BuffJson, assert equals original. */
 		private <T extends Message> void assertRoundTrip(T original) {

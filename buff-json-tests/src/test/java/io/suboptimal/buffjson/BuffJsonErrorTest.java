@@ -19,8 +19,10 @@ import io.suboptimal.buffjson.proto.*;
  */
 class BuffJsonErrorTest {
 
+	private static final BuffJsonEncoder ENCODER = BuffJson.encoder();
+	private static final BuffJsonDecoder DECODER = BuffJson.decoder();
 	private static final BuffJsonDecoder CODEGEN_DECODER = BuffJson.decoder();
-	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().withGeneratedDecoders(false);
+	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().setGeneratedDecoders(false);
 
 	// =========================================================================
 	// Malformed JSON syntax
@@ -32,7 +34,7 @@ class BuffJsonErrorTest {
 		@Test
 		void emptyStringReturnsNull() {
 			// fastjson2 returns null for empty input
-			TestAllScalars msg = BuffJson.decode("", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("", TestAllScalars.class);
 			assertNull(msg);
 		}
 
@@ -44,7 +46,7 @@ class BuffJsonErrorTest {
 		@Test
 		void truncatedObjectParsesLeniently() {
 			// fastjson2 accepts truncated objects — parses what it can
-			TestAllScalars msg = BuffJson.decode("{\"optionalInt32\": 42", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{\"optionalInt32\": 42", TestAllScalars.class);
 			assertEquals(42, msg.getOptionalInt32());
 		}
 
@@ -56,7 +58,7 @@ class BuffJsonErrorTest {
 		@Test
 		void trailingCommaParsesLeniently() {
 			// fastjson2 accepts trailing commas — lenient behavior
-			TestAllScalars msg = BuffJson.decode("{\"optionalInt32\": 42,}", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{\"optionalInt32\": 42,}", TestAllScalars.class);
 			assertEquals(42, msg.getOptionalInt32());
 		}
 
@@ -68,7 +70,7 @@ class BuffJsonErrorTest {
 		@Test
 		void nullLiteralReturnsNull() {
 			// fastjson2 returns null for JSON null literal
-			TestAllScalars msg = BuffJson.decode("null", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("null", TestAllScalars.class);
 			assertNull(msg);
 		}
 
@@ -98,7 +100,7 @@ class BuffJsonErrorTest {
 		@Test
 		void objectForStringCoercesLeniently() {
 			// fastjson2 coerces objects to string (JSON-encodes the value) — lenient
-			TestAllScalars msg = BuffJson.decode("{\"optionalString\": {\"nested\": true}}", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{\"optionalString\": {\"nested\": true}}", TestAllScalars.class);
 			assertNotNull(msg.getOptionalString());
 			assertFalse(msg.getOptionalString().isEmpty());
 		}
@@ -106,7 +108,7 @@ class BuffJsonErrorTest {
 		@Test
 		void boolForIntCoercesLeniently() {
 			// fastjson2 coerces bool to int (true→1, false→0) — lenient
-			TestAllScalars msg = BuffJson.decode("{\"optionalInt32\": true}", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{\"optionalInt32\": true}", TestAllScalars.class);
 			assertEquals(1, msg.getOptionalInt32());
 		}
 
@@ -144,7 +146,7 @@ class BuffJsonErrorTest {
 		void boolForEnumCoercesLeniently() {
 			// fastjson2 coerces bool to int, then looks up enum by number — lenient
 			// true→1 maps to TEST_ENUM_FOO (number 1)
-			TestNesting msg = BuffJson.decode("{\"enumValue\": true}", TestNesting.class);
+			TestNesting msg = DECODER.decode("{\"enumValue\": true}", TestNesting.class);
 			assertEquals(TestEnum.TEST_ENUM_FOO, msg.getEnumValue());
 		}
 
@@ -152,7 +154,7 @@ class BuffJsonErrorTest {
 		void floatForEnumTruncatesLeniently() {
 			// fastjson2 truncates float to int for enum lookup — lenient
 			// 1.5→1 maps to TEST_ENUM_FOO (number 1)
-			TestNesting msg = BuffJson.decode("{\"enumValue\": 1.5}", TestNesting.class);
+			TestNesting msg = DECODER.decode("{\"enumValue\": 1.5}", TestNesting.class);
 			assertEquals(TestEnum.TEST_ENUM_FOO, msg.getEnumValue());
 		}
 	}
@@ -201,7 +203,7 @@ class BuffJsonErrorTest {
 		@Test
 		void fieldMaskAsNumberCoercesLeniently() {
 			// fastjson2 coerces number→string — lenient
-			TestFieldMask msg = BuffJson.decode("{\"value\": 42}", TestFieldMask.class);
+			TestFieldMask msg = DECODER.decode("{\"value\": 42}", TestFieldMask.class);
 			assertNotNull(msg.getValue());
 		}
 
@@ -255,7 +257,7 @@ class BuffJsonErrorTest {
 		@Test
 		void objectForFloatCoercesLeniently() {
 			// fastjson2 coerces empty object to 0.0 — lenient
-			TestAllScalars msg = BuffJson.decode("{\"optionalFloat\": {}}", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{\"optionalFloat\": {}}", TestAllScalars.class);
 			assertEquals(0.0f, msg.getOptionalFloat());
 		}
 	}
@@ -288,7 +290,7 @@ class BuffJsonErrorTest {
 		@Test
 		void decodeWithoutRegistryThrows() {
 			String json = "{\"value\":{\"@type\":\"type.googleapis.com/io.suboptimal.buffjson.proto.NestedMessage\",\"value\":1}}";
-			var ex = assertThrows(Exception.class, () -> BuffJson.decode(json, TestAny.class));
+			var ex = assertThrows(Exception.class, () -> DECODER.decode(json, TestAny.class));
 			assertTrue(ex.getMessage().contains("TypeRegistry") || hasCauseContaining(ex, "TypeRegistry"),
 					"Error should mention TypeRegistry, got: " + deepMessage(ex));
 		}
@@ -296,7 +298,7 @@ class BuffJsonErrorTest {
 		@Test
 		void decodeUnregisteredTypeThrows() {
 			var registry = TypeRegistry.newBuilder().add(TestAllScalars.getDescriptor()).build();
-			var decoder = BuffJson.decoder().withTypeRegistry(registry);
+			var decoder = BuffJson.decoder().setTypeRegistry(registry);
 			String json = "{\"value\":{\"@type\":\"type.googleapis.com/some.unknown.Type\",\"value\":1}}";
 			var ex = assertThrows(Exception.class, () -> decoder.decode(json, TestAny.class));
 			assertTrue(ex.getMessage().contains("Cannot find type") || hasCauseContaining(ex, "Cannot find type"),
@@ -309,7 +311,7 @@ class BuffJsonErrorTest {
 			var any = Any.pack(nested);
 			var msg = TestAny.newBuilder().setValue(any).build();
 
-			var ex = assertThrows(Exception.class, () -> BuffJson.encode(msg));
+			var ex = assertThrows(Exception.class, () -> ENCODER.encode(msg));
 			assertTrue(ex.getMessage().contains("TypeRegistry") || hasCauseContaining(ex, "TypeRegistry"),
 					"Error should mention TypeRegistry, got: " + deepMessage(ex));
 		}
@@ -325,20 +327,20 @@ class BuffJsonErrorTest {
 		@Test
 		void unknownFieldsIgnored() {
 			String json = "{\"optionalInt32\": 42, \"unknownField\": \"ignored\", \"anotherUnknown\": 999}";
-			TestAllScalars msg = BuffJson.decode(json, TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode(json, TestAllScalars.class);
 			assertEquals(42, msg.getOptionalInt32());
 		}
 
 		@Test
 		void emptyObjectProducesDefault() {
-			TestAllScalars msg = BuffJson.decode("{}", TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode("{}", TestAllScalars.class);
 			assertEquals(TestAllScalars.getDefaultInstance(), msg);
 		}
 
 		@Test
 		void partialFieldsRestAreDefaults() {
 			String json = "{\"optionalString\": \"hello\"}";
-			TestAllScalars msg = BuffJson.decode(json, TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode(json, TestAllScalars.class);
 			assertEquals("hello", msg.getOptionalString());
 			assertEquals(0, msg.getOptionalInt32());
 			assertEquals(false, msg.getOptionalBool());
@@ -347,21 +349,21 @@ class BuffJsonErrorTest {
 		@Test
 		void emptyRepeatedProducesEmptyList() {
 			String json = "{\"repeatedInt32\": []}";
-			TestRepeatedScalars msg = BuffJson.decode(json, TestRepeatedScalars.class);
+			TestRepeatedScalars msg = DECODER.decode(json, TestRepeatedScalars.class);
 			assertEquals(0, msg.getRepeatedInt32Count());
 		}
 
 		@Test
 		void emptyMapProducesEmptyMap() {
 			String json = "{\"stringToString\": {}}";
-			TestMaps msg = BuffJson.decode(json, TestMaps.class);
+			TestMaps msg = DECODER.decode(json, TestMaps.class);
 			assertEquals(0, msg.getStringToStringCount());
 		}
 
 		@Test
 		void emptyNestedMessageProducesDefaults() {
 			String json = "{\"nested\": {}}";
-			TestNesting msg = BuffJson.decode(json, TestNesting.class);
+			TestNesting msg = DECODER.decode(json, TestNesting.class);
 			assertNotNull(msg.getNested());
 			assertEquals(0, msg.getNested().getValue());
 			assertEquals("", msg.getNested().getName());
@@ -370,7 +372,7 @@ class BuffJsonErrorTest {
 		@Test
 		void nullFieldValuesTreatedAsDefaults() {
 			String json = "{\"optionalInt32\": null, \"optionalString\": null}";
-			TestAllScalars msg = BuffJson.decode(json, TestAllScalars.class);
+			TestAllScalars msg = DECODER.decode(json, TestAllScalars.class);
 			assertEquals(0, msg.getOptionalInt32());
 			assertEquals("", msg.getOptionalString());
 		}

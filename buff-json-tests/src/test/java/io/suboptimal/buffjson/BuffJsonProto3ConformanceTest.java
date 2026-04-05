@@ -13,8 +13,8 @@ import io.suboptimal.buffjson.proto.*;
 class BuffJsonProto3ConformanceTest {
 
 	private static final JsonFormat.Printer REFERENCE = JsonFormat.printer().omittingInsignificantWhitespace();
-	private static final BuffJsonEncoder CODEGEN_ENCODER = BuffJson.encoder().withGeneratedEncoders(true);
-	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().withGeneratedEncoders(false);
+	private static final BuffJsonEncoder CODEGEN_ENCODER = BuffJson.encoder().setGeneratedEncoders(true);
+	private static final BuffJsonEncoder RUNTIME_ENCODER = BuffJson.encoder().setGeneratedEncoders(false);
 
 	private void assertMatchesReference(Message message) throws Exception {
 		String expected = REFERENCE.print(message);
@@ -596,8 +596,8 @@ class BuffJsonProto3ConformanceTest {
 		private static final JsonFormat.Printer ANY_REFERENCE = JsonFormat.printer().usingTypeRegistry(TYPE_REGISTRY)
 				.omittingInsignificantWhitespace();
 
-		private static final BuffJsonEncoder ENCODER = BuffJson.encoder().withTypeRegistry(TYPE_REGISTRY);
-		private static final BuffJsonEncoder RUNTIME_ANY_ENCODER = ENCODER.withGeneratedEncoders(false);
+		private static final BuffJsonEncoder ENCODER = BuffJson.encoder().setTypeRegistry(TYPE_REGISTRY);
+		private static final BuffJsonEncoder RUNTIME_ANY_ENCODER = ENCODER.setGeneratedEncoders(false);
 
 		private void assertAnyMatchesReference(Message message) throws Exception {
 			String expected = ANY_REFERENCE.print(message);

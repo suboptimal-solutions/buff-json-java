@@ -113,8 +113,8 @@ public class BuffJsonJacksonModule extends com.fasterxml.jackson.databind.Module
 		BuffJsonEncoder enc = io.suboptimal.buffjson.BuffJson.encoder();
 		BuffJsonDecoder dec = io.suboptimal.buffjson.BuffJson.decoder();
 		if (typeRegistry != null) {
-			enc = enc.withTypeRegistry(typeRegistry);
-			dec = dec.withTypeRegistry(typeRegistry);
+			enc.setTypeRegistry(typeRegistry);
+			dec.setTypeRegistry(typeRegistry);
 		}
 		this.encoder = enc;
 		this.decoder = dec;

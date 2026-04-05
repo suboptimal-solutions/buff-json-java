@@ -30,8 +30,8 @@ public class AnyBenchmark {
 	private static final int MASK = POOL_SIZE - 1;
 	private static final TypeRegistry TYPE_REGISTRY = TypeRegistry.newBuilder().add(BenchAllScalars.getDescriptor())
 			.add(Timestamp.getDescriptor()).build();
-	private static final BuffJsonEncoder COMPILED_ENCODER = BuffJson.encoder().withTypeRegistry(TYPE_REGISTRY);
-	private static final BuffJsonEncoder RUNTIME_ENCODER = COMPILED_ENCODER.withGeneratedEncoders(false);
+	private static final BuffJsonEncoder COMPILED_ENCODER = BuffJson.encoder().setTypeRegistry(TYPE_REGISTRY);
+	private static final BuffJsonEncoder RUNTIME_ENCODER = COMPILED_ENCODER.setGeneratedEncoders(false);
 	private static final JsonFormat.Printer PROTO_PRINTER = JsonFormat.printer().usingTypeRegistry(TYPE_REGISTRY);
 
 	private BenchAny[] randomAnyScalars;

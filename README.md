@@ -43,14 +43,17 @@ Inspired by [fastjson2](https://github.com/alibaba/fastjson2) and [buffa](https:
 ```java
 import io.suboptimal.buffjson.BuffJson;
 
-String json = BuffJson.encode(myProtoMessage);
+BuffJsonEncoder encoder = BuffJson.encoder();
+String json = encoder.encode(myProtoMessage);
+byte[] bytes = encoder.encodeToBytes(myProtoMessage);
+encoder.encode(myProtoMessage, outputStream);
 ```
 
 ### With Any type support
 
 ```java
 BuffJsonEncoder encoder = BuffJson.encoder()
-    .withTypeRegistry(TypeRegistry.newBuilder()
+    .setTypeRegistry(TypeRegistry.newBuilder()
         .add(MyMessage.getDescriptor())
         .build());
 String json = encoder.encode(messageContainingAny);
@@ -90,19 +93,21 @@ Also add the generated ServiceLoader file as a resource:
 </resources>
 ```
 
-No code changes needed — generated encoders and decoders are discovered automatically via `ServiceLoader`. The API (`BuffJson.encode()` / `BuffJson.decode()`) is unchanged. If the plugin is not configured, the runtime reflection path is used.
+No code changes needed — generated encoders and decoders are discovered automatically via `ServiceLoader`. If the plugin is not configured, the runtime reflection path is used.
 
 The serialization output matches `JsonFormat.printer().omittingInsignificantWhitespace().print()` exactly.
 
 ### Deserialization (JSON to protobuf)
 
 ```java
-// Basic
-MyMessage msg = BuffJson.decode(json, MyMessage.class);
+BuffJsonDecoder decoder = BuffJson.decoder();
+MyMessage msg = decoder.decode(json, MyMessage.class);
+MyMessage msg = decoder.decode(bytes, MyMessage.class);
+MyMessage msg = decoder.decode(inputStream, MyMessage.class);
 
 // With Any type support
 BuffJsonDecoder decoder = BuffJson.decoder()
-    .withTypeRegistry(TypeRegistry.newBuilder()
+    .setTypeRegistry(TypeRegistry.newBuilder()
         .add(MyMessage.getDescriptor())
         .build());
 MyMessage msg = decoder.decode(json, MyMessage.class);
@@ -110,7 +115,7 @@ MyMessage msg = decoder.decode(json, MyMessage.class);
 
 ### Jackson integration
 
-The `buff-json-jackson` module provides a Jackson `Module` for projects that use Jackson as their JSON library. It wraps `BuffJson.encode()`/`decode()` under Jackson's serialization API, so protobuf messages work seamlessly alongside POJOs and records in `ObjectMapper`:
+The `buff-json-jackson` module provides a Jackson `Module` for projects that use Jackson as their JSON library. It wraps buff-json's encoder/decoder under Jackson's serialization API, so protobuf messages work seamlessly alongside POJOs and records in `ObjectMapper`:
 
 ```java
 import io.suboptimal.buffjson.jackson.BuffJsonJacksonModule;
