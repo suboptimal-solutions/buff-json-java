@@ -17,7 +17,7 @@ Benchmarked on JDK 21 (Corretto) with JMH.
 
 ## How it works
 
-Uses [Alibaba fastjson2](https://github.com/alibaba/fastjson2) as the JSON writing engine. The encoder creates a `JSONWriter` directly and calls `ProtobufMessageWriter.writeMessage()` — bypassing fastjson2's module dispatch and provider lookup. All JSON formatting (buffering, number encoding, string escaping) is delegated to fastjson2's optimized infrastructure. Settings (TypeRegistry, useGenerated) are carried as instance fields on the writer/reader — no ThreadLocals.
+Uses [Alibaba fastjson2](https://github.com/alibaba/fastjson2) as the JSON writing engine. The encoder creates a `JSONWriter` directly and calls `ProtobufMessageWriter.writeMessage()` — bypassing fastjson2's module dispatch and provider lookup. All JSON formatting (buffering, number encoding, string escaping) is delegated to fastjson2's optimized infrastructure.
 
 **Runtime path** (works with any message, no build changes):
 - **No `getAllFields()` / TreeMap allocation** per call (unlike `JsonFormat`)
