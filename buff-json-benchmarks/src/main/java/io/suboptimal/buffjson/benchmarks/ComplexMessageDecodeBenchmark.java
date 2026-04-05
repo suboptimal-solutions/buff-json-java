@@ -3,20 +3,17 @@ package io.suboptimal.buffjson.benchmarks;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.util.JsonFormat;
-import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 
 import org.openjdk.jmh.annotations.*;
 
 import io.suboptimal.buffjson.BuffJson;
 import io.suboptimal.buffjson.BuffJsonDecoder;
-import io.suboptimal.buffjson.jackson.ProtobufJacksonModule;
 import io.suboptimal.buffjson.proto.ComplexMessage;
 
 /**
  * Deserialization benchmark: nested messages, maps, repeated fields, oneof,
- * bytes, timestamps.
+ * bytes, timestamps. Compares BuffJson vs JsonFormat.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
@@ -30,13 +27,6 @@ public class ComplexMessageDecodeBenchmark {
 	private static final int MASK = POOL_SIZE - 1;
 	private static final JsonFormat.Parser PROTO_PARSER = JsonFormat.parser();
 	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().withGeneratedDecoders(false);
-	private static final ObjectMapper JACKSON_MAPPER = new ObjectMapper().registerModule(new ProtobufModule());
-	/**
-	 * buff-json via Jackson ObjectMapper (wraps BuffJson.decode through Jackson's
-	 * Module API).
-	 */
-	private static final ObjectMapper BUFF_JACKSON_MAPPER = new ObjectMapper()
-			.registerModule(new ProtobufJacksonModule());
 
 	private String[] jsonStrings;
 	private int index;
@@ -66,16 +56,5 @@ public class ComplexMessageDecodeBenchmark {
 		ComplexMessage.Builder builder = ComplexMessage.newBuilder();
 		PROTO_PARSER.merge(jsonStrings[index++ & MASK], builder);
 		return builder.build();
-	}
-
-	@Benchmark
-	public ComplexMessage jacksonProtobuf() throws Exception {
-		return JACKSON_MAPPER.readValue(jsonStrings[index++ & MASK], ComplexMessage.class);
-	}
-
-	/** Measures buff-json decoding through Jackson's ObjectMapper wrapper. */
-	@Benchmark
-	public ComplexMessage buffJsonJackson() throws Exception {
-		return BUFF_JACKSON_MAPPER.readValue(jsonStrings[index++ & MASK], ComplexMessage.class);
 	}
 }

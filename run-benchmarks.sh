@@ -4,26 +4,30 @@
 #
 # Usage:
 #   ./run-benchmarks.sh                          # run regression suite (default)
-#   ./run-benchmarks.sh --full                   # run ALL benchmarks
+#   ./run-benchmarks.sh --full                   # run full BuffJson-vs-JsonFormat suite
 #   ./run-benchmarks.sh --full -wi 3 -i 5 -f 2  # full suite with custom JMH options
 #   ./run-benchmarks.sh -wi 3 -i 5 -f 2         # regression suite with custom JMH options
 #
-# Regression suite (default) — focused set for catching regressions fast:
-#   SimpleMessageBenchmark     — flat 6-field message
-#   ComplexMessageBenchmark    — nested/maps/repeated/oneofs/bytes/timestamps
+# Regression suite (default) — core BuffJson vs JsonFormat:
+#   SimpleMessageBenchmark     — flat 6-field message (encode + decode)
+#   ComplexMessageBenchmark    — nested/maps/repeated/oneofs/bytes/timestamps (encode + decode)
 #   WktBenchmark               — Timestamp + Struct
 #   RepeatedAndMapBenchmark    — 100+ repeated, 50+ map entries
-#   CeilingBenchmark           — fastjson2 POJO ceiling vs BuffJson
-#   ProtoBinaryBenchmark       — BuffJson JSON vs protobuf binary encoding
 #
 # Full suite — adds these on top of regression:
 #   AllScalarsBenchmark        — all 15 proto3 scalar types + enum
 #   AnyBenchmark               — Any with TypeRegistry
 #   DeepNestingAndStringBenchmark — recursive nesting + string/bytes stress
 #
+# By-demand benchmarks (run explicitly by name):
+#   CeilingBenchmark           — fastjson2 POJO ceiling vs BuffJson
+#   JacksonBenchmark           — BuffJson vs Jackson (HubSpot + BuffJson-Jackson module)
+#   ProtoBinaryBenchmark       — BuffJson JSON vs protobuf binary encoding
+#
 # Benchmark subsets (pass as regex filter after flags):
 #   ./run-benchmarks.sh "SimpleMessage"
 #   ./run-benchmarks.sh "WktBenchmark.timestamp"
+#   ./run-benchmarks.sh "JacksonBenchmark"
 #   ./run-benchmarks.sh "CeilingBenchmark"
 #
 # Output:
@@ -58,18 +62,23 @@ if [ ${#JMH_ARGS[@]} -eq 0 ]; then
     JMH_ARGS=(-wi 3 -i 5 -f 2)
 fi
 
-# Regression suite filter (default unless --full)
-if [ "$FULL_MODE" = false ]; then
-    # Check if user already specified a regex filter (non-flag argument)
-    HAS_FILTER=false
-    for arg in "${JMH_ARGS[@]}"; do
-        if [[ ! "$arg" =~ ^- ]] && [[ ! "$arg" =~ ^[0-9]+$ ]]; then
-            HAS_FILTER=true
-            break
-        fi
-    done
-    if [ "$HAS_FILTER" = false ]; then
-        JMH_ARGS=("(SimpleMessage|ComplexMessage|Ceiling|Wkt|RepeatedAndMap|ProtoBinary)Benchmark" "${JMH_ARGS[@]}")
+# Check if user already specified a regex filter (non-flag argument)
+HAS_FILTER=false
+for arg in "${JMH_ARGS[@]}"; do
+    if [[ ! "$arg" =~ ^- ]] && [[ ! "$arg" =~ ^[0-9]+$ ]]; then
+        HAS_FILTER=true
+        break
+    fi
+done
+
+# Apply suite filter only when no explicit filter was given
+if [ "$HAS_FILTER" = false ]; then
+    if [ "$FULL_MODE" = true ]; then
+        # Full suite: all BuffJson-vs-JsonFormat benchmarks
+        JMH_ARGS=("(SimpleMessage|ComplexMessage|Wkt|RepeatedAndMap|AllScalars|Any|DeepNestingAndString)Benchmark" "${JMH_ARGS[@]}")
+    else
+        # Regression suite: core BuffJson-vs-JsonFormat benchmarks
+        JMH_ARGS=("(SimpleMessage|ComplexMessage|Wkt|RepeatedAndMap)Benchmark" "${JMH_ARGS[@]}")
     fi
 fi
 
@@ -100,7 +109,7 @@ echo "Benchmarks complete. Generating report..."
 
 # Generate markdown report from JSON results
 python3 - "$JSON_FILE" "$REPORT_FILE" << 'PYTHON_EOF'
-import json, sys, os
+import json, sys, os, re
 from datetime import datetime
 from collections import defaultdict
 
@@ -140,6 +149,149 @@ if results:
     if jdk_version:
         jvm_info += f" (JDK {jdk_version})" if jvm_info else f"JDK {jdk_version}"
 
+
+# ---- Helpers ----
+
+def fmt(m):
+    if m is None:
+        return "-"
+    score_str = f"{m['score']:,.0f}"
+    err = m['error']
+    if isinstance(err, (int, float)) and err == err:  # not NaN
+        return f"{score_str} \u00b1{err:,.0f}"
+    return score_str
+
+def camel_split(name):
+    """Split camelCase: 'buffJsonCompiled' -> ['buff', 'Json', 'Compiled']"""
+    return re.findall(r'[a-z0-9]+|[A-Z][a-z0-9]*', name)
+
+def join_camel(parts):
+    if not parts:
+        return ""
+    return parts[0] + "".join(p for p in parts[1:])
+
+IMPL_KEYWORDS = {"json", "binary", "jackson", "buff", "fastjson", "proto", "gson", "hubspot"}
+
+def keyword_score(col_names):
+    """Score how many column names contain known implementation keywords."""
+    return sum(10 for name in col_names
+               if any(kw in name.lower() for kw in IMPL_KEYWORDS))
+
+def is_core_class(methods):
+    """Core benchmarks: have methods ending in Compiled + Runtime + JsonFormat."""
+    has_compiled = any(m["method"].endswith("Compiled") or m["method"] == "buffJsonCompiled" for m in methods)
+    has_jsonformat = any(m["method"].endswith("JsonFormat") or m["method"] == "protoJsonFormat" for m in methods)
+    return has_compiled and has_jsonformat
+
+def find_matrix(methods):
+    """Auto-detect matrix structure from method names for comparison benchmarks.
+    Returns (rows_dict, col_names) or None.
+    rows_dict = {row_label: {col_label: method_data}}
+    """
+    names = [m["method"] for m in methods]
+    by_name = {m["method"]: m for m in methods}
+    n = len(names)
+
+    if n < 2:
+        return None
+
+    segments = {name: camel_split(name) for name in names}
+    max_segs = max(len(s) for s in segments.values())
+    candidates = []
+
+    def try_grouping(row_fn, col_fn):
+        grps = defaultdict(dict)
+        cols = set()
+        for name in names:
+            try:
+                row = row_fn(name)
+                col = col_fn(name)
+            except (IndexError, ValueError):
+                return None
+            if not row or not col:
+                return None
+            if col in grps[row]:
+                return None
+            grps[row][col] = by_name[name]
+            cols.add(col)
+        total = sum(len(v) for v in grps.values())
+        expected = len(grps) * len(cols)
+        if total == expected == n and len(cols) >= 2 and len(grps) >= 1:
+            return dict(grps), sorted(cols)
+        return None
+
+    # Strategy 1: last N camelCase segments as column
+    for cw in range(1, min(4, max_segs)):
+        result = try_grouping(
+            lambda nm, w=cw: join_camel(segments[nm][:-w]) if len(segments[nm]) > w else None,
+            lambda nm, w=cw: join_camel(segments[nm][-w:]) if len(segments[nm]) > w else None,
+        )
+        if result:
+            candidates.append(result)
+
+    # Strategy 2: first N camelCase segments as row
+    for rw in range(1, min(4, max_segs)):
+        result = try_grouping(
+            lambda nm, w=rw: join_camel(segments[nm][:w]) if len(segments[nm]) > w else None,
+            lambda nm, w=rw: join_camel(segments[nm][w:]) if len(segments[nm]) > w else None,
+        )
+        if result:
+            candidates.append(result)
+
+    # Strategy 3: middle segment extraction (segment at position pos = column)
+    for pos in range(1, max_segs - 1):
+        result = try_grouping(
+            lambda nm, p=pos: join_camel(segments[nm][:p] + segments[nm][p+1:]) if len(segments[nm]) > p + 1 else None,
+            lambda nm, p=pos: segments[nm][p] if len(segments[nm]) > p + 1 else None,
+        )
+        if result:
+            candidates.append(result)
+
+    if not candidates:
+        return None
+
+    # Score each candidate + its transpose, pick best.
+    # Scoring: prefer columns with implementation keywords, more rows, fewer columns.
+    def matrix_score(cols, n_rows):
+        return keyword_score(cols) - len(cols) * 12 + n_rows * 3
+
+    best_score = -999
+    best_result = None
+
+    for rows_dict, col_names in candidates:
+        # Original orientation
+        score = matrix_score(col_names, len(rows_dict))
+        if score > best_score:
+            best_score = score
+            best_result = (rows_dict, col_names)
+
+        # Transposed orientation
+        transposed = defaultdict(dict)
+        for row, cols in rows_dict.items():
+            for col, m in cols.items():
+                transposed[col][row] = m
+        t_col_names = sorted(rows_dict.keys())
+        t_rows_dict = dict(transposed)
+        score_t = matrix_score(t_col_names, len(t_rows_dict))
+        if score_t > best_score:
+            best_score = score_t
+            best_result = (t_rows_dict, t_col_names)
+
+    return best_result
+
+def find_baseline_col(col_names):
+    """Find the column representing BuffJson (baseline for ratios)."""
+    for col in col_names:
+        if "uffJson" in col and "Jackson" not in col:
+            return col
+    for col in col_names:
+        if col == "Json":
+            return col
+    return col_names[0]
+
+
+# ---- Report generation ----
+
 with open(report_file, "w") as f:
     f.write("# Benchmark Report\n\n")
     f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -147,243 +299,154 @@ with open(report_file, "w") as f:
         f.write(f"**{jvm_info}**\n")
     f.write(f"**Benchmarks:** {len(results)} methods across {len(groups)} classes\n\n")
 
-    def fmt(m):
-        if m is None:
-            return "-"
-        score_str = f"{m['score']:,.0f}"
-        err = m['error']
-        if isinstance(err, (int, float)) and err == err:  # not NaN
-            return f"{score_str} \u00b1{err:,.0f}"
-        return score_str
-
-    def classify_encoder(name):
-        if "Compiled" in name or name.startswith("buffJsonCompiled"):
-            return "compiled"
-        if "Runtime" in name or name.startswith("buffJsonRuntime"):
-            return "runtime"
-        if "JsonFormat" in name or name.endswith("JsonFormat"):
-            return "jsonformat"
-        if name.startswith("jacksonProtobuf"):
-            return "jackson"
-        if name.endswith("JacksonHubspot"):
-            return "jackson_hubspot"
-        if "fastjson2" in name or name.startswith("fastjson2"):
-            return "fastjson2"
-        return None
-
-    def is_ceiling_class(class_name):
-        return class_name == "CeilingBenchmark"
-
-    def is_proto_binary_class(class_name):
-        return class_name == "ProtoBinaryBenchmark"
-
-
-    # Per-class analysis
     for class_name in sorted(groups.keys()):
         methods = groups[class_name]
         f.write(f"## {class_name}\n\n")
 
-        if is_proto_binary_class(class_name):
-            # Proto binary benchmark: compare BuffJson JSON vs protobuf binary
-            by_key = {}
-            for m in methods:
-                by_key[m["method"]] = m
-
-            rows = [
-                ("simple encode", "simpleJsonEncode", "simpleBinaryEncode"),
-                ("simple decode", "simpleJsonDecode", "simpleBinaryDecode"),
-                ("complex encode", "complexJsonEncode", "complexBinaryEncode"),
-                ("complex decode", "complexJsonDecode", "complexBinaryDecode"),
-            ]
-
-            f.write("| | BuffJson JSON | Protobuf Binary | JSON / Binary |\n")
-            f.write("|---|---:|---:|:---:|\n")
-            for label, json_key, bin_key in rows:
-                jm = by_key.get(json_key)
-                bm = by_key.get(bin_key)
-                ratio = ""
-                if jm and bm and bm["score"] > 0:
-                    ratio = f"**{jm['score'] / bm['score']:.2f}x**"
-                f.write(f"| {label} | {fmt(jm)} | {fmt(bm)} | {ratio} |\n")
-            f.write("\n")
-            continue
-
-        if is_ceiling_class(class_name):
-            # Ceiling benchmark: compare like-for-like (compiled vs compiled, runtime vs runtime)
-            fj2_runtime = None
-            fj2_compiled = None
-            bj_compiled = None
-            bj_runtime = None
+        if is_core_class(methods):
+            # ---- Core benchmark: BuffJson compiled/runtime vs JsonFormat ----
+            comparisons = defaultdict(dict)
             for m in methods:
                 name = m["method"]
-                if name == "fastjson2Runtime":
-                    fj2_runtime = m
-                elif name == "fastjson2Compiled":
-                    fj2_compiled = m
-                elif name == "buffJsonCompiled":
-                    bj_compiled = m
-                elif name == "buffJsonRuntime":
-                    bj_runtime = m
+                mode = None
+                variant = name
+                for suffix, mode_name in [("Compiled", "compiled"), ("Runtime", "runtime"), ("JsonFormat", "jsonformat")]:
+                    if name.endswith(suffix):
+                        mode = mode_name
+                        variant = name[:-len(suffix)]
+                        break
+                if mode is None:
+                    continue
+                if variant in ("buffJson", "protoJson", "proto", "protoJsonFormat", ""):
+                    variant = "message"
+                comparisons[variant][mode] = m
 
-            f.write("| | Fastjson2 | BuffJson | BuffJson / Fastjson2 |\n")
-            f.write("|---|---:|---:|:---:|\n")
+            f.write("| | BuffJson Compiled | BuffJson Runtime | JsonFormat | Compiled / JF | Runtime / JF |\n")
+            f.write("|---|---:|---:|---:|:---:|:---:|\n")
 
-            # Compiled row
-            ratio_c = ""
-            if bj_compiled and fj2_compiled and fj2_compiled["score"] > 0:
-                ratio_c = f"**{bj_compiled['score'] / fj2_compiled['score']:.2f}x**"
-            f.write(f"| compiled | {fmt(fj2_compiled)} | {fmt(bj_compiled)} | {ratio_c} |\n")
-
-            # Runtime row
-            ratio_r = ""
-            if bj_runtime and fj2_runtime and fj2_runtime["score"] > 0:
-                ratio_r = f"**{bj_runtime['score'] / fj2_runtime['score']:.2f}x**"
-            f.write(f"| runtime | {fmt(fj2_runtime)} | {fmt(bj_runtime)} | {ratio_r} |\n")
+            for variant in sorted(comparisons.keys()):
+                data = comparisons[variant]
+                cp = data.get("compiled")
+                rt = data.get("runtime")
+                jf = data.get("jsonformat")
+                label = variant if variant != "message" else ""
+                ratio_c = f"**{cp['score']/jf['score']:.1f}x**" if cp and jf and jf["score"] > 0 else ""
+                ratio_r = f"**{rt['score']/jf['score']:.1f}x**" if rt and jf and jf["score"] > 0 else ""
+                f.write(f"| {label} | {fmt(cp)} | {fmt(rt)} | {fmt(jf)} | {ratio_c} | {ratio_r} |\n")
 
             f.write("\n")
-            continue
 
-        # Standard benchmark classes: BuffJson vs JsonFormat, row per mode
-        comparisons = defaultdict(dict)
-        for m in methods:
-            name = m["method"]
-            encoder = classify_encoder(name)
-            if encoder is None:
-                encoder = name
-
-            # Extract the message/benchmark prefix
-            prefix = name
-            for suffix in ["Compiled", "Runtime", "JsonFormat", "Protobuf"]:
-                if prefix.endswith(suffix):
-                    prefix = prefix[:-len(suffix)]
-                    break
-            if prefix in ("buffJson", "protoJson", "proto", "protoJsonFormat", "jackson", "jacksonProtobuf"):
-                prefix = "message"
-            if not prefix:
-                prefix = "message"
-
-            comparisons[prefix][encoder] = m
-
-        # Check if any method in this class has Jackson
-        has_jackson = any(classify_encoder(m["method"]) == "jackson" for m in methods)
-
-        if has_jackson:
-            f.write("| | BuffJson | JsonFormat | Jackson | BuffJson / JsonFormat | BuffJson / Jackson |\n")
-            f.write("|---|---:|---:|---:|:---:|:---:|\n")
         else:
-            f.write("| | BuffJson | JsonFormat | BuffJson / JsonFormat |\n")
-            f.write("|---|---:|---:|:---:|\n")
+            # ---- Comparison benchmark: auto-detect matrix ----
+            matrix = find_matrix(methods)
 
-        for key in sorted(comparisons.keys()):
-            scores = comparisons[key]
-            cp = scores.get("compiled")
-            rt = scores.get("runtime")
-            jf = scores.get("jsonformat")
-            jk = scores.get("jackson")
+            if matrix:
+                rows_dict, col_names = matrix
+                baseline = find_baseline_col(col_names)
+                non_baseline = [c for c in col_names if c != baseline]
 
-            label = f"{key} " if key != "message" else ""
+                # Header
+                header = "| |"
+                sep = "|---|"
+                for col in col_names:
+                    header += f" {col} |"
+                    sep += "---:|"
+                for col in non_baseline:
+                    header += f" {baseline}/{col} |"
+                    sep += ":---:|"
+                f.write(header + "\n")
+                f.write(sep + "\n")
 
-            ratio_c_jf = ""
-            if cp and jf and jf["score"] > 0:
-                ratio_c_jf = f"**{cp['score'] / jf['score']:.1f}x**"
-            ratio_c_jk = ""
-            if cp and jk and jk["score"] > 0:
-                ratio_c_jk = f"**{cp['score'] / jk['score']:.1f}x**"
-
-            if has_jackson:
-                f.write(f"| {label}compiled | {fmt(cp)} | {fmt(jf)} | {fmt(jk)} | {ratio_c_jf} | {ratio_c_jk} |\n")
+                for row in sorted(rows_dict.keys()):
+                    cols_data = rows_dict[row]
+                    line = f"| {row} |"
+                    for col in col_names:
+                        line += f" {fmt(cols_data.get(col))} |"
+                    bl_m = cols_data.get(baseline)
+                    for col in non_baseline:
+                        other_m = cols_data.get(col)
+                        if bl_m and other_m and other_m["score"] > 0:
+                            line += f" **{bl_m['score']/other_m['score']:.2f}x** |"
+                        else:
+                            line += " |"
+                    f.write(line + "\n")
             else:
-                f.write(f"| {label}compiled | {fmt(cp)} | {fmt(jf)} | {ratio_c_jf} |\n")
+                # Fallback: flat table
+                f.write("| Method | ops/s |\n")
+                f.write("|---|---:|\n")
+                for m in sorted(methods, key=lambda x: x["method"]):
+                    f.write(f"| {m['method']} | {fmt(m)} |\n")
 
-            ratio_r_jf = ""
-            if rt and jf and jf["score"] > 0:
-                ratio_r_jf = f"**{rt['score'] / jf['score']:.1f}x**"
-            ratio_r_jk = ""
-            if rt and jk and jk["score"] > 0:
-                ratio_r_jk = f"**{rt['score'] / jk['score']:.1f}x**"
+            f.write("\n")
 
-            if has_jackson:
-                f.write(f"| {label}runtime | {fmt(rt)} | {fmt(jf)} | {fmt(jk)} | {ratio_r_jf} | {ratio_r_jk} |\n")
-            else:
-                f.write(f"| {label}runtime | {fmt(rt)} | {fmt(jf)} | {ratio_r_jf} |\n")
-
-        f.write("\n")
-
-    # Overall highlights
+    # ---- Key Takeaways ----
     f.write("## Key Takeaways\n\n")
 
+    # Core benchmark ratios (BuffJson vs JsonFormat)
     all_ratios = []
     for class_name in groups:
-        if is_ceiling_class(class_name):
+        if not is_core_class(groups[class_name]):
             continue
         methods = groups[class_name]
-        compiled_methods = {m["method"]: m["score"] for m in methods
-                           if "Compiled" in m["method"] or m["method"] == "buffJsonCompiled"}
-        runtime_methods = {m["method"]: m["score"] for m in methods
-                           if "Runtime" in m["method"] or m["method"] == "buffJsonRuntime"}
-        jf_methods = {m["method"]: m["score"] for m in methods
-                      if "JsonFormat" in m["method"] or m["method"] == "protoJsonFormat"}
+        compiled = {m["method"]: m["score"] for m in methods
+                    if m["method"].endswith("Compiled") or m["method"] == "buffJsonCompiled"}
+        runtime = {m["method"]: m["score"] for m in methods
+                   if m["method"].endswith("Runtime") or m["method"] == "buffJsonRuntime"}
+        jf = {m["method"]: m["score"] for m in methods
+              if m["method"].endswith("JsonFormat") or m["method"] == "protoJsonFormat"}
 
-        for cp_name, cp_score in compiled_methods.items():
-            prefix_cp = cp_name.replace("Compiled", "")
+        for cp_name, cp_score in compiled.items():
+            prefix_cp = cp_name.replace("Compiled", "").replace("buffJson", "")
             entry = {"class": class_name, "method": cp_name, "score": cp_score}
-
-            for jf_name, jf_score in jf_methods.items():
-                prefix_jf = jf_name.replace("JsonFormat", "")
+            for jf_name, jf_score in jf.items():
+                prefix_jf = jf_name.replace("JsonFormat", "").replace("protoJsonFormat", "").replace("proto", "")
                 if prefix_cp == prefix_jf and jf_score > 0:
-                    entry["compiled_vs_jsonformat"] = cp_score / jf_score
-
-            for rt_name, rt_score in runtime_methods.items():
-                prefix_rt = rt_name.replace("Runtime", "")
-                for jf_name, jf_score in jf_methods.items():
-                    prefix_jf = jf_name.replace("JsonFormat", "")
+                    entry["compiled_vs_jf"] = cp_score / jf_score
+            for rt_name, rt_score in runtime.items():
+                prefix_rt = rt_name.replace("Runtime", "").replace("buffJson", "")
+                for jf_name, jf_score in jf.items():
+                    prefix_jf = jf_name.replace("JsonFormat", "").replace("protoJsonFormat", "").replace("proto", "")
                     if prefix_rt == prefix_jf and jf_score > 0:
-                        entry["runtime_vs_jsonformat"] = rt_score / jf_score
-
-            if "compiled_vs_jsonformat" in entry:
+                        entry["runtime_vs_jf"] = rt_score / jf_score
+            if "compiled_vs_jf" in entry:
                 all_ratios.append(entry)
 
     if all_ratios:
-        best_c = max(all_ratios, key=lambda r: r.get("compiled_vs_jsonformat", 0))
-        worst_c = min(all_ratios, key=lambda r: r.get("compiled_vs_jsonformat", float("inf")))
-        best_r = max(all_ratios, key=lambda r: r.get("runtime_vs_jsonformat", 0))
-        worst_r = min(all_ratios, key=lambda r: r.get("runtime_vs_jsonformat", float("inf")))
-
-        f.write(f"- **Best compiled vs JsonFormat:** {best_c['compiled_vs_jsonformat']:.1f}x "
+        best_c = max(all_ratios, key=lambda r: r.get("compiled_vs_jf", 0))
+        worst_c = min(all_ratios, key=lambda r: r.get("compiled_vs_jf", float("inf")))
+        best_r = max(all_ratios, key=lambda r: r.get("runtime_vs_jf", 0))
+        worst_r = min(all_ratios, key=lambda r: r.get("runtime_vs_jf", float("inf")))
+        f.write(f"- **Best compiled vs JsonFormat:** {best_c['compiled_vs_jf']:.1f}x "
                 f"({best_c['class']}.{best_c['method']})\n")
-        f.write(f"- **Smallest compiled vs JsonFormat:** {worst_c['compiled_vs_jsonformat']:.1f}x "
+        f.write(f"- **Smallest compiled vs JsonFormat:** {worst_c['compiled_vs_jf']:.1f}x "
                 f"({worst_c['class']}.{worst_c['method']})\n")
-        if "runtime_vs_jsonformat" in best_r:
-            f.write(f"- **Best runtime vs JsonFormat:** {best_r['runtime_vs_jsonformat']:.1f}x "
+        if "runtime_vs_jf" in best_r:
+            f.write(f"- **Best runtime vs JsonFormat:** {best_r['runtime_vs_jf']:.1f}x "
                     f"({best_r['class']}.{best_r['method'].replace('Compiled','Runtime')})\n")
-        if "runtime_vs_jsonformat" in worst_r:
-            f.write(f"- **Smallest runtime vs JsonFormat:** {worst_r['runtime_vs_jsonformat']:.1f}x "
+        if "runtime_vs_jf" in worst_r:
+            f.write(f"- **Smallest runtime vs JsonFormat:** {worst_r['runtime_vs_jf']:.1f}x "
                     f"({worst_r['class']}.{worst_r['method'].replace('Compiled','Runtime')})\n")
 
-    # Proto binary summary
-    pb_methods = groups.get("ProtoBinaryBenchmark", [])
-    if pb_methods:
-        pb_by_key = {m["method"]: m["score"] for m in pb_methods}
-        for label, jk, bk in [("Simple encode", "simpleJsonEncode", "simpleBinaryEncode"),
-                               ("Complex encode", "complexJsonEncode", "complexBinaryEncode"),
-                               ("Simple decode", "simpleJsonDecode", "simpleBinaryDecode"),
-                               ("Complex decode", "complexJsonDecode", "complexBinaryDecode")]:
-            js = pb_by_key.get(jk, 0)
-            bs = pb_by_key.get(bk, 0)
-            if js > 0 and bs > 0:
-                f.write(f"- **{label}: JSON / Binary:** {js / bs:.2f}x\n")
-
-    # Ceiling summary
-    ceiling_methods = groups.get("CeilingBenchmark", [])
-    if ceiling_methods:
-        fj2c = next((m["score"] for m in ceiling_methods if m["method"] == "fastjson2Compiled"), None)
-        fj2r = next((m["score"] for m in ceiling_methods if m["method"] == "fastjson2Runtime"), None)
-        bjc = next((m["score"] for m in ceiling_methods if m["method"] == "buffJsonCompiled"), None)
-        bjr = next((m["score"] for m in ceiling_methods if m["method"] == "buffJsonRuntime"), None)
-        if fj2c and bjc and fj2c > 0:
-            f.write(f"- **Compiled: BuffJson vs fastjson2:** {bjc / fj2c:.2f}x\n")
-        if fj2r and bjr and fj2r > 0:
-            f.write(f"- **Runtime: BuffJson vs fastjson2:** {bjr / fj2r:.2f}x\n")
+    # Comparison benchmark summaries (auto-detected)
+    for class_name in sorted(groups.keys()):
+        if is_core_class(groups[class_name]):
+            continue
+        matrix = find_matrix(groups[class_name])
+        if not matrix:
+            continue
+        rows_dict, col_names = matrix
+        baseline = find_baseline_col(col_names)
+        non_baseline = [c for c in col_names if c != baseline]
+        for other in non_baseline:
+            ratios = []
+            for row, cols_data in rows_dict.items():
+                bl = cols_data.get(baseline)
+                ot = cols_data.get(other)
+                if bl and ot and ot["score"] > 0:
+                    ratios.append(bl["score"] / ot["score"])
+            if ratios:
+                avg = sum(ratios) / len(ratios)
+                f.write(f"- **{class_name} \u2014 {baseline} vs {other}:** avg {avg:.2f}x\n")
 
     f.write(f"\n\n---\n*Generated from `{os.path.basename(json_file)}`*\n")
 
