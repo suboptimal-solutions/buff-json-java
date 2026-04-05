@@ -41,7 +41,7 @@ public final class FieldReader {
 	 * Reads a single field value from the JSON reader, dispatching based on the
 	 * field's Java type.
 	 */
-	public static Object readValue(JSONReader reader, FieldDescriptor fd) {
+	public static Object readValue(JSONReader reader, FieldDescriptor fd, ProtobufMessageReader msgReader) {
 		return switch (fd.getJavaType()) {
 			case INT -> readIntValue(reader, fd);
 			case LONG -> readLongValue(reader, fd);
@@ -51,7 +51,7 @@ public final class FieldReader {
 			case STRING -> reader.readString();
 			case BYTE_STRING -> ByteString.copyFrom(BASE64.decode(reader.readString()));
 			case ENUM -> readEnumValue(reader, fd);
-			case MESSAGE -> readMessageValue(reader, fd);
+			case MESSAGE -> readMessageValue(reader, fd, msgReader);
 		};
 	}
 
@@ -142,24 +142,25 @@ public final class FieldReader {
 		return fd.getEnumType().findValueByNumber(0);
 	}
 
-	private static Message readMessageValue(JSONReader reader, FieldDescriptor fd) {
+	private static Message readMessageValue(JSONReader reader, FieldDescriptor fd, ProtobufMessageReader msgReader) {
 		Descriptor msgDesc = fd.getMessageType();
 		if (WellKnownTypes.isWellKnownType(msgDesc)) {
-			return WellKnownTypes.readWkt(reader, msgDesc);
+			return WellKnownTypes.readWkt(reader, msgDesc, msgReader);
 		}
-		return ProtobufMessageReader.readMessage(reader, msgDesc);
+		return msgReader.readMessage(reader, msgDesc);
 	}
 
 	/**
 	 * Reads a repeated field as a JSON array, adding each element to the builder.
 	 */
-	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd) {
+	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
+			ProtobufMessageReader msgReader) {
 		reader.nextIfArrayStart();
 		while (!reader.nextIfArrayEnd()) {
 			if (reader.nextIfNull()) {
 				continue;
 			}
-			Object value = readValue(reader, fd);
+			Object value = readValue(reader, fd, msgReader);
 			builder.addRepeatedField(fd, value);
 		}
 	}
@@ -167,7 +168,8 @@ public final class FieldReader {
 	/**
 	 * Reads a map field as a JSON object, adding entries to the builder.
 	 */
-	public static void readMap(JSONReader reader, Message.Builder builder, FieldDescriptor fd) {
+	public static void readMap(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
+			ProtobufMessageReader msgReader) {
 		Descriptor entryDesc = fd.getMessageType();
 		FieldDescriptor keyFd = entryDesc.findFieldByName("key");
 		FieldDescriptor valueFd = entryDesc.findFieldByName("value");
@@ -185,7 +187,7 @@ public final class FieldReader {
 			if (reader.nextIfNull()) {
 				value = getDefaultMapValue(valueFd);
 			} else {
-				value = readValue(reader, valueFd);
+				value = readValue(reader, valueFd, msgReader);
 			}
 
 			Message.Builder entryBuilder = builder.newBuilderForField(fd);

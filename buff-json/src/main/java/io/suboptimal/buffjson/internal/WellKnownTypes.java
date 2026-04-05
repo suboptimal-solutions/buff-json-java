@@ -16,8 +16,6 @@ import com.google.protobuf.*;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 
-import io.suboptimal.buffjson.BuffJson;
-
 /**
  * Specialized JSON serialization for protobuf
  * <a href="https://protobuf.dev/reference/protobuf/google.protobuf/">well-known
@@ -79,25 +77,25 @@ public final class WellKnownTypes {
 		return WELL_KNOWN_TYPE_NAMES.contains(descriptor.getFullName());
 	}
 
-	public static void write(JSONWriter jsonWriter, Message message) {
+	public static void write(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		var descriptor = message.getDescriptorForType();
 		switch (descriptor.getFullName()) {
-			case "google.protobuf.Any" -> writeAny(jsonWriter, message);
+			case "google.protobuf.Any" -> writeAny(jsonWriter, message, writer);
 			case "google.protobuf.Timestamp" -> writeTimestamp(jsonWriter, message);
 			case "google.protobuf.Duration" -> writeDuration(jsonWriter, message);
 			case "google.protobuf.FieldMask" -> writeFieldMask(jsonWriter, message);
-			case "google.protobuf.Struct" -> writeStruct(jsonWriter, message);
-			case "google.protobuf.Value" -> writeValue(jsonWriter, message);
-			case "google.protobuf.ListValue" -> writeListValue(jsonWriter, message);
+			case "google.protobuf.Struct" -> writeStruct(jsonWriter, message, writer);
+			case "google.protobuf.Value" -> writeValue(jsonWriter, message, writer);
+			case "google.protobuf.ListValue" -> writeListValue(jsonWriter, message, writer);
 			case "google.protobuf.DoubleValue", "google.protobuf.FloatValue", "google.protobuf.Int64Value",
 					"google.protobuf.UInt64Value", "google.protobuf.Int32Value", "google.protobuf.UInt32Value",
 					"google.protobuf.BoolValue", "google.protobuf.StringValue", "google.protobuf.BytesValue" ->
-				writeWrapper(jsonWriter, message);
+				writeWrapper(jsonWriter, message, writer);
 			default -> throw new IllegalArgumentException("Unknown well-known type: " + descriptor.getFullName());
 		}
 	}
 
-	private static void writeAny(JSONWriter jsonWriter, Message message) {
+	private static void writeAny(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		var fields = getFields(message, "type_url", "value");
 		String typeUrl = (String) message.getField(fields[0]);
 		ByteString content = (ByteString) message.getField(fields[1]);
@@ -109,10 +107,10 @@ public final class WellKnownTypes {
 			return;
 		}
 
-		TypeRegistry registry = BuffJson.ACTIVE_REGISTRY.get();
+		TypeRegistry registry = writer.typeRegistry();
 		if (registry == null) {
 			throw new IllegalStateException("Cannot serialize google.protobuf.Any without a TypeRegistry. "
-					+ "Use BuffJson.encoder().withTypeRegistry(registry).encode(message).");
+					+ "Use BuffJson.encoder().setTypeRegistry(registry).encode(message).");
 		}
 
 		Descriptor type;
@@ -142,10 +140,10 @@ public final class WellKnownTypes {
 			// WKT packed in Any: {"@type": "...", "value": <wkt-json>}
 			jsonWriter.writeName("value");
 			jsonWriter.writeColon();
-			write(jsonWriter, contentMessage);
+			write(jsonWriter, contentMessage, writer);
 		} else {
 			// Regular message: {"@type": "...", ...fields...}
-			ProtobufMessageWriter.writeFields(jsonWriter, contentMessage);
+			writer.writeFields(jsonWriter, contentMessage);
 		}
 
 		jsonWriter.endObject();
@@ -219,7 +217,7 @@ public final class WellKnownTypes {
 		jsonWriter.writeString(sb.toString());
 	}
 
-	private static void writeStruct(JSONWriter jsonWriter, Message message) {
+	private static void writeStruct(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		var fields = getFields(message, "fields");
 		@SuppressWarnings("unchecked")
 		List<Message> entries = (List<Message>) message.getField(fields[0]);
@@ -231,12 +229,12 @@ public final class WellKnownTypes {
 			Message value = (Message) entry.getField(entryFields[1]);
 			jsonWriter.writeName(key);
 			jsonWriter.writeColon();
-			writeValue(jsonWriter, value);
+			writeValue(jsonWriter, value, writer);
 		}
 		jsonWriter.endObject();
 	}
 
-	private static void writeValue(JSONWriter jsonWriter, Message message) {
+	private static void writeValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		var desc = message.getDescriptorForType();
 		var kindOneof = desc.getOneofs().get(0);
 		var activeField = message.getOneofFieldDescriptor(kindOneof);
@@ -251,12 +249,12 @@ public final class WellKnownTypes {
 			case "number_value" -> jsonWriter.writeDouble((double) message.getField(activeField));
 			case "string_value" -> jsonWriter.writeString((String) message.getField(activeField));
 			case "bool_value" -> jsonWriter.writeBool((boolean) message.getField(activeField));
-			case "struct_value" -> writeStruct(jsonWriter, (Message) message.getField(activeField));
-			case "list_value" -> writeListValue(jsonWriter, (Message) message.getField(activeField));
+			case "struct_value" -> writeStruct(jsonWriter, (Message) message.getField(activeField), writer);
+			case "list_value" -> writeListValue(jsonWriter, (Message) message.getField(activeField), writer);
 		}
 	}
 
-	private static void writeListValue(JSONWriter jsonWriter, Message message) {
+	private static void writeListValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		var fields = getFields(message, "values");
 		@SuppressWarnings("unchecked")
 		List<Message> values = (List<Message>) message.getField(fields[0]);
@@ -265,16 +263,16 @@ public final class WellKnownTypes {
 		for (int i = 0; i < values.size(); i++) {
 			if (i > 0)
 				jsonWriter.writeComma();
-			writeValue(jsonWriter, values.get(i));
+			writeValue(jsonWriter, values.get(i), writer);
 		}
 		jsonWriter.endArray();
 	}
 
-	private static void writeWrapper(JSONWriter jsonWriter, Message message) {
+	private static void writeWrapper(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
 		// Wrapper types have a single "value" field — delegate to FieldWriter
 		// which already handles unsigned formatting, NaN/Infinity, Base64, etc.
 		var fields = getFields(message, "value");
-		FieldWriter.writeValue(jsonWriter, fields[0], message.getField(fields[0]));
+		FieldWriter.writeValue(jsonWriter, fields[0], message.getField(fields[0]), writer);
 	}
 
 	/**
@@ -373,9 +371,9 @@ public final class WellKnownTypes {
 	/**
 	 * Reads a well-known type from JSON. Dispatches by descriptor full name.
 	 */
-	public static Message readWkt(JSONReader reader, Descriptor descriptor) {
+	public static Message readWkt(JSONReader reader, Descriptor descriptor, ProtobufMessageReader msgReader) {
 		return switch (descriptor.getFullName()) {
-			case "google.protobuf.Any" -> readAny(reader);
+			case "google.protobuf.Any" -> readAny(reader, msgReader);
 			case "google.protobuf.Timestamp" -> readTimestamp(reader);
 			case "google.protobuf.Duration" -> readDuration(reader);
 			case "google.protobuf.FieldMask" -> readFieldMask(reader);
@@ -509,7 +507,7 @@ public final class WellKnownTypes {
 		return builder.build();
 	}
 
-	private static Any readAny(JSONReader reader) {
+	private static Any readAny(JSONReader reader, ProtobufMessageReader msgReader) {
 		// Read the entire JSON object into a map to extract @type first
 		reader.nextIfObjectStart();
 
@@ -531,10 +529,10 @@ public final class WellKnownTypes {
 			return Any.getDefaultInstance();
 		}
 
-		TypeRegistry registry = BuffJson.ACTIVE_REGISTRY.get();
+		TypeRegistry registry = msgReader.typeRegistry();
 		if (registry == null) {
 			throw new IllegalStateException("Cannot deserialize google.protobuf.Any without a TypeRegistry. "
-					+ "Use BuffJson.decoder().withTypeRegistry(registry).decode(json, clazz).");
+					+ "Use BuffJson.decoder().setTypeRegistry(registry).decode(json, clazz).");
 		}
 
 		Descriptor type;
@@ -553,13 +551,13 @@ public final class WellKnownTypes {
 			Object valueObj = allFields.get("value");
 			String valueJson = com.alibaba.fastjson2.JSON.toJSONString(valueObj);
 			try (JSONReader valueReader = JSONReader.of(valueJson)) {
-				contentMessage = readWkt(valueReader, type);
+				contentMessage = readWkt(valueReader, type, msgReader);
 			}
 		} else {
 			// Regular message: {"@type": "...", ...fields...}
 			String fieldsJson = com.alibaba.fastjson2.JSON.toJSONString(allFields);
 			try (JSONReader fieldsReader = JSONReader.of(fieldsJson)) {
-				contentMessage = ProtobufMessageReader.readMessage(fieldsReader, type);
+				contentMessage = msgReader.readMessage(fieldsReader, type);
 			}
 		}
 

@@ -12,22 +12,24 @@ import com.google.protobuf.Message;
  * {@link ProtobufMessageReader}.
  *
  * <p>
- * Registered once via
- * {@link com.alibaba.fastjson2.JSONFactory#getDefaultObjectReaderProvider()}.
- * When fastjson2 encounters any class assignable to {@code Message}, this
- * module returns the singleton {@link ProtobufMessageReader} instance.
+ * The module holds a configured {@link ProtobufMessageReader} instance that
+ * carries settings (typeRegistry, useGenerated). Obtain a module via
+ * {@link io.suboptimal.buffjson.BuffJsonDecoder#readerModule()}.
  */
 public final class ProtobufReaderModule implements ObjectReaderModule {
 
-	public static final ProtobufReaderModule INSTANCE = new ProtobufReaderModule();
+	public static final ProtobufReaderModule INSTANCE = new ProtobufReaderModule(ProtobufMessageReader.INSTANCE);
 
-	private ProtobufReaderModule() {
+	private final ProtobufMessageReader reader;
+
+	public ProtobufReaderModule(ProtobufMessageReader reader) {
+		this.reader = reader;
 	}
 
 	@Override
 	public ObjectReader<?> getObjectReader(Type objectType) {
 		if (objectType instanceof Class<?> clazz && Message.class.isAssignableFrom(clazz)) {
-			return ProtobufMessageReader.INSTANCE;
+			return reader;
 		}
 		return null;
 	}

@@ -11,23 +11,25 @@ import com.google.protobuf.Message;
  * subclass types and delegates serialization to {@link ProtobufMessageWriter}.
  *
  * <p>
- * Registered once via
- * {@link com.alibaba.fastjson2.JSONFactory#getDefaultObjectWriterProvider()}.
- * When fastjson2 encounters any class assignable to {@code Message}, this
- * module returns the singleton {@link ProtobufMessageWriter} instance.
+ * The module holds a configured {@link ProtobufMessageWriter} instance that
+ * carries settings (typeRegistry, useGenerated). Obtain a module via
+ * {@link io.suboptimal.buffjson.BuffJsonEncoder#writerModule()}.
  */
 public final class ProtobufWriterModule implements ObjectWriterModule {
 
-	public static final ProtobufWriterModule INSTANCE = new ProtobufWriterModule();
+	public static final ProtobufWriterModule INSTANCE = new ProtobufWriterModule(ProtobufMessageWriter.INSTANCE);
 
-	private ProtobufWriterModule() {
+	private final ProtobufMessageWriter writer;
+
+	public ProtobufWriterModule(ProtobufMessageWriter writer) {
+		this.writer = writer;
 	}
 
 	@SuppressWarnings("rawtypes") // ObjectWriterModule declares raw Class
 	@Override
 	public ObjectWriter<?> getObjectWriter(Type objectType, Class objectClass) {
 		if (objectClass != null && Message.class.isAssignableFrom(objectClass)) {
-			return ProtobufMessageWriter.INSTANCE;
+			return writer;
 		}
 		return null;
 	}

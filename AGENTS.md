@@ -12,17 +12,15 @@ Includes JSON Schema generation from protobuf descriptors (separate module, no f
 Two encoding paths — codegen (fast) with fallback to runtime (reflection):
 
 ```
-BuffJson.encode(message)
-  -> BuffJsonEncoder.encode(message)
-    -> sets ThreadLocal TypeRegistry + SKIP_GENERATED_ENCODERS (if configured)
-    -> JSON.toJSONString(message)       # fastjson2 entry point
-      -> ProtobufWriterModule.getObjectWriter()  # intercepts Message types
-        -> ProtobufMessageWriter.writeFields()
-          -> GeneratedEncoderRegistry.get()    # check for codegen encoder (ServiceLoader)
-             -> if found: BuffJsonGeneratedEncoder.writeFields()   # direct typed accessors, no boxing
-                -> nested messages: OtherEncoder.INSTANCE.writeFields()  # direct, no registry
-                -> WKT Timestamp/Duration: writeTimestampDirect(seconds, nanos)  # no reflection
-             -> if not:   runtime path (MessageSchema + FieldWriter)  # reflection-style getField()
+BuffJsonEncoder.encode(message)
+  -> creates JSONWriter directly (bypasses fastjson2 module dispatch)
+  -> ProtobufMessageWriter(typeRegistry, useGenerated).writeMessage(jsonWriter, message)
+    -> writeFields(jsonWriter, message)           # instance method, carries settings
+      -> GeneratedEncoderRegistry.get()           # check for codegen encoder (ServiceLoader)
+         -> if found: BuffJsonGeneratedEncoder.writeFields(jw, msg, writer)  # direct typed accessors
+            -> nested messages: OtherEncoder.INSTANCE.writeFields(jw, nested, writer)  # direct
+            -> WKT Timestamp/Duration: writeTimestampDirect(seconds, nanos)  # no reflection
+         -> if not:   runtime path (MessageSchema + FieldWriter)  # reflection-style getField()
 ```
 
 **Codegen path** (optional, ~2-3x faster): protoc plugin generates `*JsonEncoder` per message.
@@ -32,7 +30,7 @@ Each encoder calls typed getters directly (`msg.getId()` → `int`), eliminating
 - `ConcurrentHashMap.get()` for MessageSchema lookup
 
 Additional codegen optimizations:
-- **Direct nested encoder calls** — `AddressJsonEncoder.INSTANCE.writeFields()` instead of routing through `ProtobufMessageWriter` (avoids ThreadLocal read + ConcurrentHashMap lookup + instanceof check per nested message)
+- **Direct nested encoder calls** — `AddressJsonEncoder.INSTANCE.writeFields(jw, msg, writer)` instead of routing through `ProtobufMessageWriter` (avoids ConcurrentHashMap lookup + instanceof check per nested message)
 - **Inline WKT Timestamp/Duration** — `WellKnownTypes.writeTimestampDirect(jsonWriter, ts.getSeconds(), ts.getNanos())` bypasses descriptor string switch, field cache lookup, and `getField()` reflection+boxing
 - **Pre-cached enum name arrays** — static `String[]` built at class init from enum descriptor values, replaces `forNumber()` + `getValueDescriptor().getName()` per write
 - **String map key optimization** — avoids redundant `toString()` for String-typed map keys
@@ -49,33 +47,41 @@ We handle: protobuf field extraction, proto3 JSON spec compliance, well-known ty
 
 ```java
 // Simple usage (no Any fields)
-String json = BuffJson.encode(message);
+BuffJsonEncoder encoder = BuffJson.encoder();
+String json = encoder.encode(message);
 
-// Builder pattern with TypeRegistry (for Any fields)
+// With TypeRegistry (for Any fields)
 BuffJsonEncoder encoder = BuffJson.encoder()
-    .withTypeRegistry(TypeRegistry.newBuilder()
+    .setTypeRegistry(TypeRegistry.newBuilder()
         .add(MyMessage.getDescriptor())
         .build());
 String json = encoder.encode(message);
 
 // Force runtime path (skip generated encoders, for benchmarking/testing)
-BuffJsonEncoder genericEncoder = BuffJson.encoder().withGeneratedEncoders(false);
-String json = genericBuffJsonEncoder.encode(message);
+BuffJsonEncoder runtimeEncoder = BuffJson.encoder().setGeneratedEncoders(false);
+String json = runtimeEncoder.encode(message);
+
+// Mixed pojo + protobuf: register fastjson2 module from encoder/decoder
+JSONFactory.getDefaultObjectWriterProvider().register(encoder.writerModule());
+JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
 ```
 
-- `BuffJson` — static entry point + factory for `BuffJsonEncoder`
-- `BuffJsonEncoder` — immutable, thread-safe, cacheable. Holds optional `TypeRegistry` and `useGeneratedEncoders` flag.
+- `BuffJson` — static entry point + factory for `BuffJsonEncoder` and `BuffJsonDecoder`
+- `BuffJsonEncoder` — configurable encoder. Holds optional `TypeRegistry` and `useGeneratedEncoders` flag. Creates `JSONWriter` directly (no fastjson2 module dispatch). Exposes `writerModule()` for fastjson2 registration.
+- `BuffJsonDecoder` — configurable decoder. Creates `JSONReader` directly. Exposes `readerModule()` for fastjson2 registration.
 - `BuffJsonGeneratedEncoder<T>` — interface implemented by protoc-plugin-generated encoders. Discovered via `ServiceLoader`.
+- `BuffJsonGeneratedDecoder<T>` — interface implemented by protoc-plugin-generated decoders. Discovered via `ServiceLoader`.
 
 ## Key Design Decisions
 
-- **fastjson2 `ObjectWriterModule`**: Chose the public plugin API over depending on fastjson2 internals.
+- **Direct JSONWriter/JSONReader** — encoder/decoder create fastjson2 writers/readers directly, bypassing the module dispatch and provider lookup. This eliminates per-call overhead from fastjson2's `JSON.toJSONString()`/`JSON.parseObject()`.
+- **Instance-based settings** — `ProtobufMessageWriter` and `ProtobufMessageReader` hold `TypeRegistry` and `useGenerated` as instance fields. Settings flow through the call chain via `this` — no ThreadLocals.
+- **Module exposure** — `encoder.writerModule()` and `decoder.readerModule()` return fastjson2 modules backed by configured writer/reader instances, for mixed pojo+protobuf projects using `JSON.toJSONString()`.
 - **`MessageSchema` caching**: One-time cost per Descriptor. Avoids `getAllFields()` TreeMap allocation.
 - **Pre-computed `char[] nameWithColon`**: Field names pre-encoded as `"name":` for `writeNameRaw(char[])`. Must use `char[]` (not `byte[]`) because `JSONWriterUTF16.writeNameRaw(byte[])` throws `UnsupportedOperation`.
 - **`message.getField(descriptor)`** for field access in runtime path (involves boxing for primitives).
 - **`Float.floatToRawIntBits() == 0`** for default value checks (correctly handles `-0.0`).
 - **`Long.toUnsignedString()`** for uint64, **`Integer.toUnsignedLong()`** for uint32.
-- **ThreadLocal `TypeRegistry`** and **`SKIP_GENERATED_ENCODERS`** for per-encode configuration.
 - **Builder pattern** (`BuffJsonEncoder`) mirrors `JsonFormat.printer()` style, extensible for future options.
 - **`GeneratedEncoderRegistry`** uses `ServiceLoader` — zero-config discovery, no registration needed.
 - **`DynamicMessage` guard**: Generated encoders are skipped for `DynamicMessage` instances (e.g., from Any unpacking) because they'd fail the cast to the concrete message type.

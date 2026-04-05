@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.Deserializers;
 import com.fasterxml.jackson.databind.ser.Serializers;
 import com.google.protobuf.Message;
-import com.google.protobuf.TypeRegistry;
 
+import io.suboptimal.buffjson.BuffJson;
 import io.suboptimal.buffjson.BuffJsonDecoder;
 import io.suboptimal.buffjson.BuffJsonEncoder;
 
@@ -50,14 +50,17 @@ import io.suboptimal.buffjson.BuffJsonEncoder;
  * 		.addModule(new BuffJsonJacksonModule()).build();
  * }</pre>
  *
- * <h3>Any type support</h3>
+ * <h3>Custom encoder/decoder (e.g. Any support)</h3>
  *
  * <p>
- * For messages containing {@code google.protobuf.Any} fields, pass a
- * {@link TypeRegistry} to the constructor:
+ * For messages containing {@code google.protobuf.Any} fields or other custom
+ * settings, pass pre-configured encoder and decoder:
  *
  * <pre>{@code
- * mapper.registerModule(new BuffJsonJacksonModule(TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build()));
+ * var registry = TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build();
+ * var encoder = BuffJson.encoder().setTypeRegistry(registry);
+ * var decoder = BuffJson.decoder().setTypeRegistry(registry);
+ * mapper.registerModule(new BuffJsonJacksonModule(encoder, decoder));
  * }</pre>
  *
  * <h3>Architecture</h3>
@@ -87,37 +90,32 @@ public class BuffJsonJacksonModule extends com.fasterxml.jackson.databind.Module
 	private static final Version VERSION = new Version(0, 2, 0, "", "io.github.suboptimal-solutions",
 			"buff-json-jackson");
 
-	/** Encoder used by the serializer — may include a TypeRegistry for Any. */
+	/** Encoder used by the serializer. */
 	final BuffJsonEncoder encoder;
 
-	/** Decoder used by the deserializer — may include a TypeRegistry for Any. */
+	/** Decoder used by the deserializer. */
 	final BuffJsonDecoder decoder;
 
 	/**
-	 * Creates a module without a {@link TypeRegistry}. Sufficient for messages that
-	 * do not contain {@code google.protobuf.Any} fields.
+	 * Creates a module with default encoder and decoder. Sufficient for messages
+	 * that do not contain {@code google.protobuf.Any} fields.
 	 */
 	public BuffJsonJacksonModule() {
-		this(null);
+		this(BuffJson.encoder(), BuffJson.decoder());
 	}
 
 	/**
-	 * Creates a module with a {@link TypeRegistry} for resolving
-	 * {@code google.protobuf.Any} fields during serialization and deserialization.
+	 * Creates a module with pre-configured encoder and decoder. Use this for custom
+	 * settings such as {@link com.google.protobuf.TypeRegistry} for Any support.
 	 *
-	 * @param typeRegistry
-	 *            registry containing descriptors for types packed in Any, or
-	 *            {@code null} for no Any support
+	 * @param encoder
+	 *            the encoder to use for serialization
+	 * @param decoder
+	 *            the decoder to use for deserialization
 	 */
-	public BuffJsonJacksonModule(TypeRegistry typeRegistry) {
-		BuffJsonEncoder enc = io.suboptimal.buffjson.BuffJson.encoder();
-		BuffJsonDecoder dec = io.suboptimal.buffjson.BuffJson.decoder();
-		if (typeRegistry != null) {
-			enc.setTypeRegistry(typeRegistry);
-			dec.setTypeRegistry(typeRegistry);
-		}
-		this.encoder = enc;
-		this.decoder = dec;
+	public BuffJsonJacksonModule(BuffJsonEncoder encoder, BuffJsonDecoder decoder) {
+		this.encoder = encoder;
+		this.decoder = decoder;
 	}
 
 	@Override

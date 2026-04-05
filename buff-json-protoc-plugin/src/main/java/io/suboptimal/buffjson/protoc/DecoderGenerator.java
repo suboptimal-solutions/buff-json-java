@@ -38,7 +38,8 @@ final class DecoderGenerator {
 		sb.append("    }\n\n");
 
 		sb.append("    @Override\n");
-		sb.append("    public ").append(messageClassName).append(" readMessage(JSONReader reader) {\n");
+		sb.append("    public ").append(messageClassName).append(
+				" readMessage(JSONReader reader, io.suboptimal.buffjson.internal.ProtobufMessageReader msgReader) {\n");
 		sb.append("        ").append(messageClassName).append(".Builder builder = ").append(messageClassName)
 				.append(".newBuilder();\n");
 		sb.append("        reader.nextIfObjectStart();\n");
@@ -282,17 +283,16 @@ final class DecoderGenerator {
 			String msgJavaClass = protoToJavaClass.get(fullName);
 			sb.append(indent).append(prefix).append("((").append(msgJavaClass)
 					.append(") io.suboptimal.buffjson.internal.WellKnownTypes.readWkt(reader, ").append(msgJavaClass)
-					.append(".getDescriptor())").append(closeSuffix).append(");\n");
+					.append(".getDescriptor(), msgReader)").append(closeSuffix).append(");\n");
 		} else {
 			String decoderClass = protoToDecoderClass.get(fullName);
 			if (decoderClass != null) {
 				sb.append(indent).append(prefix).append("(").append(decoderClass)
-						.append(".INSTANCE.readMessage(reader)").append(closeSuffix).append(");\n");
+						.append(".INSTANCE.readMessage(reader, msgReader)").append(closeSuffix).append(");\n");
 			} else {
-				String msgJavaClass = protoToJavaClass.get(fullName);
-				sb.append(indent).append(prefix)
-						.append("(io.suboptimal.buffjson.internal.ProtobufMessageReader.readMessage(reader, ")
-						.append(msgJavaClass).append(".getDescriptor())").append(closeSuffix).append(");\n");
+				sb.append(indent).append(prefix).append("(msgReader.readMessage(reader, ")
+						.append(protoToJavaClass.get(fullName)).append(".getDescriptor())").append(closeSuffix)
+						.append(");\n");
 			}
 		}
 	}

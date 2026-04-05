@@ -1,10 +1,17 @@
 package io.suboptimal.buffjson;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
-import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONException;
+import com.alibaba.fastjson2.JSONReader;
+import com.alibaba.fastjson2.modules.ObjectReaderModule;
+import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
+
+import io.suboptimal.buffjson.internal.ProtobufMessageReader;
+import io.suboptimal.buffjson.internal.ProtobufReaderModule;
 
 /**
  * Configurable decoder for JSON-to-protobuf deserialization.
@@ -49,11 +56,11 @@ public final class BuffJsonDecoder {
 	 * Decodes a proto3 JSON string to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(String json, Class<T> messageClass) {
-		setupThreadLocals();
-		try {
-			return JSON.parseObject(json, messageClass);
-		} finally {
-			clearThreadLocals();
+		if (json == null || json.isEmpty()) {
+			return null;
+		}
+		try (JSONReader reader = JSONReader.of(json)) {
+			return readProto(reader, messageClass);
 		}
 	}
 
@@ -62,11 +69,11 @@ public final class BuffJsonDecoder {
 	 * reads the backing storage of the original String directly.
 	 */
 	public <T extends Message> T decode(String json, int offset, int length, Class<T> messageClass) {
-		setupThreadLocals();
-		try {
-			return JSON.parseObject(json, offset, length, messageClass);
-		} finally {
-			clearThreadLocals();
+		if (json == null || length == 0) {
+			return null;
+		}
+		try (JSONReader reader = JSONReader.of(json, offset, length)) {
+			return readProto(reader, messageClass);
 		}
 	}
 
@@ -74,11 +81,8 @@ public final class BuffJsonDecoder {
 	 * Decodes a UTF-8 JSON byte array to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(byte[] json, Class<T> messageClass) {
-		setupThreadLocals();
-		try {
-			return JSON.parseObject(json, messageClass);
-		} finally {
-			clearThreadLocals();
+		try (JSONReader reader = JSONReader.of(json)) {
+			return readProto(reader, messageClass);
 		}
 	}
 
@@ -87,11 +91,8 @@ public final class BuffJsonDecoder {
 	 * — FastJson2 reads directly from the provided array.
 	 */
 	public <T extends Message> T decode(byte[] json, int offset, int length, Class<T> messageClass) {
-		setupThreadLocals();
-		try {
-			return JSON.parseObject(json, offset, length, messageClass);
-		} finally {
-			clearThreadLocals();
+		try (JSONReader reader = JSONReader.of(json, offset, length)) {
+			return readProto(reader, messageClass);
 		}
 	}
 
@@ -99,29 +100,39 @@ public final class BuffJsonDecoder {
 	 * Decodes proto3 JSON from an {@link InputStream} to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(InputStream in, Class<T> messageClass) {
-		setupThreadLocals();
-		try {
-			return JSON.parseObject(in, messageClass);
-		} finally {
-			clearThreadLocals();
+		try (JSONReader reader = JSONReader.of(in, StandardCharsets.UTF_8)) {
+			return readProto(reader, messageClass);
 		}
 	}
 
-	private void setupThreadLocals() {
-		if (typeRegistry != null) {
-			BuffJson.ACTIVE_REGISTRY.set(typeRegistry);
-		}
-		if (!useGeneratedDecoders) {
-			BuffJson.SKIP_GENERATED.set(Boolean.TRUE);
-		}
+	/**
+	 * Returns a fastjson2 reader module configured with this decoder's settings.
+	 * Register it for mixed pojo + protobuf deserialization:
+	 *
+	 * <pre>{@code
+	 * JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
+	 * JSON.parseObject(json, MyMessage.class); // uses this decoder's settings
+	 * }</pre>
+	 */
+	public ObjectReaderModule readerModule() {
+		return new ProtobufReaderModule(messageReader());
 	}
 
-	private void clearThreadLocals() {
-		if (typeRegistry != null) {
-			BuffJson.ACTIVE_REGISTRY.remove();
+	@SuppressWarnings("unchecked")
+	private <T extends Message> T readProto(JSONReader reader, Class<T> messageClass) {
+		if (reader.nextIfNull()) {
+			return null;
 		}
-		if (!useGeneratedDecoders) {
-			BuffJson.SKIP_GENERATED.remove();
+		Message defaultInstance = ProtobufMessageReader.getDefaultInstance(messageClass);
+		Descriptor descriptor = defaultInstance.getDescriptorForType();
+		T result = (T) messageReader().readMessage(reader, descriptor, defaultInstance);
+		if (!reader.isEnd()) {
+			throw new JSONException("input not end");
 		}
+		return result;
+	}
+
+	private ProtobufMessageReader messageReader() {
+		return new ProtobufMessageReader(typeRegistry, useGeneratedDecoders);
 	}
 }

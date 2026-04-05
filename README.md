@@ -17,14 +17,14 @@ Benchmarked on JDK 21 (Corretto) with JMH.
 
 ## How it works
 
-Uses [Alibaba fastjson2](https://github.com/alibaba/fastjson2) as the JSON writing engine via its `ObjectWriterModule` extension point. We register a custom module that handles `com.google.protobuf.Message` types, extracting fields via protobuf Descriptors and delegating all JSON formatting (buffering, number encoding, string escaping) to fastjson2's optimized infrastructure.
+Uses [Alibaba fastjson2](https://github.com/alibaba/fastjson2) as the JSON writing engine. The encoder creates a `JSONWriter` directly and calls `ProtobufMessageWriter.writeMessage()` — bypassing fastjson2's module dispatch and provider lookup. All JSON formatting (buffering, number encoding, string escaping) is delegated to fastjson2's optimized infrastructure. Settings (TypeRegistry, useGenerated) are carried as instance fields on the writer/reader — no ThreadLocals.
 
 **Runtime path** (works with any message, no build changes):
 - **No `getAllFields()` / TreeMap allocation** per call (unlike `JsonFormat`)
 - **No Gson dependency** for string escaping (unlike `JsonFormat`)
 - **Cached `MessageSchema`** per message Descriptor (one-time cost)
 - **Pre-computed field name chars** for `writeNameRaw()` — avoids per-field string encoding
-- **fastjson2 ThreadLocal buffer reuse** eliminates per-call allocations
+- **fastjson2 striped buffer reuse** eliminates per-call allocations
 
 **Codegen path** (optional protoc plugin, ~2-3x additional speedup):
 - **Direct typed accessors** — `message.getId()` returns `int`, no boxing
@@ -113,6 +113,23 @@ BuffJsonDecoder decoder = BuffJson.decoder()
 MyMessage msg = decoder.decode(json, MyMessage.class);
 ```
 
+### Mixed pojo + protobuf (fastjson2 registration)
+
+For projects that use `JSON.toJSONString()` with both POJOs and protobuf messages, register fastjson2 modules from the encoder/decoder:
+
+```java
+BuffJsonEncoder encoder = BuffJson.encoder();
+BuffJsonDecoder decoder = BuffJson.decoder();
+
+// Register modules — protobuf messages handled by BuffJson, POJOs by fastjson2
+JSONFactory.getDefaultObjectWriterProvider().register(encoder.writerModule());
+JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
+
+// Now both work with fastjson2
+JSON.toJSONString(myProtoMessage);  // uses BuffJson
+JSON.toJSONString(myPojo);          // uses fastjson2 default
+```
+
 ### Jackson integration
 
 The `buff-json-jackson` module provides a Jackson `Module` for projects that use Jackson as their JSON library. It wraps buff-json's encoder/decoder under Jackson's serialization API, so protobuf messages work seamlessly alongside POJOs and records in `ObjectMapper`:
@@ -142,11 +159,13 @@ ObjectMapper mapper = JsonMapper.builder()
     .build();
 ```
 
-For `google.protobuf.Any` support, pass a `TypeRegistry`:
+For `google.protobuf.Any` support, pass configured encoder and decoder:
 
 ```java
+var registry = TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build();
 mapper.registerModule(new BuffJsonJacksonModule(
-    TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build()));
+    BuffJson.encoder().setTypeRegistry(registry),
+    BuffJson.decoder().setTypeRegistry(registry)));
 ```
 
 ### JSON Schema generation

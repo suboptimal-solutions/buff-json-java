@@ -32,13 +32,13 @@ Every `assertMatchesReference()` validates **both paths** (codegen and runtime):
 
 ```java
 String expected = JsonFormat.printer().omittingInsignificantWhitespace().print(message);
-String codegen = BuffJson.encode(message);                         // uses generated encoders
-String runtime = RUNTIME_ENCODER.encode(message);                  // withGeneratedEncoders(false)
+String codegen = CODEGEN_ENCODER.encode(message);                  // uses generated encoders
+String runtime = RUNTIME_ENCODER.encode(message);                  // setGeneratedEncoders(false)
 assertEquals(expected, codegen, "Codegen mismatch for " + type);
 assertEquals(expected, runtime, "Runtime mismatch for " + type);
 ```
 
-Any tests use the same dual-path pattern with `BuffJsonEncoder.withTypeRegistry()`.
+Any tests use the same dual-path pattern with `BuffJsonEncoder.setTypeRegistry()`.
 
 ## Protoc Plugin Integration
 

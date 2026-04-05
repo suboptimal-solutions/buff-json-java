@@ -10,7 +10,7 @@ Owns its own .proto definitions for benchmark messages.
 Each benchmark class has up to 6 methods (constant + random variants × 3 encoders):
 
 - `buffJsonCodegen()` / `buffJsonCodegenRandom()` — codegen path
-- `buffJson()` / `buffJsonRandom()` — runtime path (with `withGeneratedEncoders(false)`)
+- `buffJson()` / `buffJsonRandom()` — runtime path (with `setGeneratedEncoders(false)`)
 - `protoJsonFormat()` / `protoJsonFormatRandom()` — `JsonFormat.printer().print()` (baseline)
 
 Random variants use a 1024-element message pool (`index++ & MASK` cycling).

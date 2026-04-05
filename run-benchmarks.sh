@@ -26,6 +26,7 @@
 #
 # Benchmark subsets (pass as regex filter after flags):
 #   ./run-benchmarks.sh "SimpleMessage"
+#   ./run-benchmarks.sh "ComplexMessage"
 #   ./run-benchmarks.sh "WktBenchmark.timestamp"
 #   ./run-benchmarks.sh "JacksonBenchmark"
 #   ./run-benchmarks.sh "CeilingBenchmark"

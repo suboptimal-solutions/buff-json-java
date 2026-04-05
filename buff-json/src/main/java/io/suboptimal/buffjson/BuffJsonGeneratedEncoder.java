@@ -3,6 +3,8 @@ package io.suboptimal.buffjson;
 import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.Message;
 
+import io.suboptimal.buffjson.internal.ProtobufMessageWriter;
+
 /**
  * Generated per-message-type encoder that uses typed accessors instead of
  * reflection-style {@code getField()}.
@@ -25,6 +27,10 @@ public interface BuffJsonGeneratedEncoder<T extends Message> {
 	 * Writes all non-default fields of the message as JSON object content (without
 	 * surrounding braces). The caller is responsible for
 	 * {@code startObject}/{@code endObject}.
+	 *
+	 * @param writer
+	 *            the message writer carrying settings (typeRegistry, useGenerated)
+	 *            for recursive nested message writes
 	 */
-	void writeFields(JSONWriter jsonWriter, T message);
+	void writeFields(JSONWriter jsonWriter, T message, ProtobufMessageWriter writer);
 }

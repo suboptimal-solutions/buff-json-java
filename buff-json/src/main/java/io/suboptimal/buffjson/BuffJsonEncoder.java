@@ -3,10 +3,14 @@ package io.suboptimal.buffjson;
 import java.io.IOException;
 import java.io.OutputStream;
 
-import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONWriter;
+import com.alibaba.fastjson2.modules.ObjectWriterModule;
 import com.google.protobuf.Message;
 import com.google.protobuf.MessageOrBuilder;
 import com.google.protobuf.TypeRegistry;
+
+import io.suboptimal.buffjson.internal.ProtobufMessageWriter;
+import io.suboptimal.buffjson.internal.ProtobufWriterModule;
 
 /**
  * Configurable encoder for protobuf-to-JSON serialization.
@@ -52,11 +56,9 @@ public final class BuffJsonEncoder {
 	 */
 	public String encode(MessageOrBuilder message) {
 		Message msg = toMessage(message);
-		setupThreadLocals();
-		try {
-			return JSON.toJSONString(msg);
-		} finally {
-			clearThreadLocals();
+		try (JSONWriter writer = JSONWriter.of()) {
+			messageWriter().writeMessage(writer, msg);
+			return writer.toString();
 		}
 	}
 
@@ -65,11 +67,9 @@ public final class BuffJsonEncoder {
 	 */
 	public byte[] encodeToBytes(MessageOrBuilder message) {
 		Message msg = toMessage(message);
-		setupThreadLocals();
-		try {
-			return JSON.toJSONBytes(msg);
-		} finally {
-			clearThreadLocals();
+		try (JSONWriter writer = JSONWriter.ofUTF8()) {
+			messageWriter().writeMessage(writer, msg);
+			return writer.getBytes();
 		}
 	}
 
@@ -79,12 +79,27 @@ public final class BuffJsonEncoder {
 	 */
 	public void encode(MessageOrBuilder message, OutputStream out) throws IOException {
 		Message msg = toMessage(message);
-		setupThreadLocals();
-		try {
-			JSON.writeTo(out, msg);
-		} finally {
-			clearThreadLocals();
+		try (JSONWriter writer = JSONWriter.ofUTF8()) {
+			messageWriter().writeMessage(writer, msg);
+			writer.flushTo(out);
 		}
+	}
+
+	/**
+	 * Returns a fastjson2 writer module configured with this encoder's settings.
+	 * Register it for mixed pojo + protobuf serialization:
+	 *
+	 * <pre>{@code
+	 * JSONFactory.getDefaultObjectWriterProvider().register(encoder.writerModule());
+	 * JSON.toJSONString(message); // uses this encoder's settings
+	 * }</pre>
+	 */
+	public ObjectWriterModule writerModule() {
+		return new ProtobufWriterModule(messageWriter());
+	}
+
+	private ProtobufMessageWriter messageWriter() {
+		return new ProtobufMessageWriter(typeRegistry, useGeneratedEncoders);
 	}
 
 	private static Message toMessage(MessageOrBuilder message) {
@@ -92,23 +107,5 @@ public final class BuffJsonEncoder {
 			return m;
 		}
 		return ((Message.Builder) message).buildPartial();
-	}
-
-	private void setupThreadLocals() {
-		if (typeRegistry != null) {
-			BuffJson.ACTIVE_REGISTRY.set(typeRegistry);
-		}
-		if (!useGeneratedEncoders) {
-			BuffJson.SKIP_GENERATED.set(Boolean.TRUE);
-		}
-	}
-
-	private void clearThreadLocals() {
-		if (typeRegistry != null) {
-			BuffJson.ACTIVE_REGISTRY.remove();
-		}
-		if (!useGeneratedEncoders) {
-			BuffJson.SKIP_GENERATED.remove();
-		}
 	}
 }

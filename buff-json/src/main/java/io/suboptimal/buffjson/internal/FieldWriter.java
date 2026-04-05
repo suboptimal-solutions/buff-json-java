@@ -49,8 +49,11 @@ public final class FieldWriter {
 	 *            the field descriptor (provides type info for format decisions)
 	 * @param value
 	 *            the field value (boxed for primitives)
+	 * @param writer
+	 *            the message writer for recursive nested message writes
 	 */
-	public static void writeValue(JSONWriter jsonWriter, FieldDescriptor fd, Object value) {
+	public static void writeValue(JSONWriter jsonWriter, FieldDescriptor fd, Object value,
+			ProtobufMessageWriter writer) {
 		switch (fd.getJavaType()) {
 			case INT -> {
 				// Handle unsigned types: uint32/fixed32 need unsigned representation
@@ -101,9 +104,9 @@ public final class FieldWriter {
 			case MESSAGE -> {
 				Message msg = (Message) value;
 				if (WellKnownTypes.isWellKnownType(msg.getDescriptorForType())) {
-					WellKnownTypes.write(jsonWriter, msg);
+					WellKnownTypes.write(jsonWriter, msg, writer);
 				} else {
-					ProtobufMessageWriter.INSTANCE.writeMessage(jsonWriter, msg);
+					writer.writeMessage(jsonWriter, msg);
 				}
 			}
 		}
@@ -141,12 +144,13 @@ public final class FieldWriter {
 	 * Writes a repeated field as a JSON array. Empty arrays should be skipped by
 	 * the caller.
 	 */
-	public static void writeRepeated(JSONWriter jsonWriter, FieldDescriptor fd, List<?> values) {
+	public static void writeRepeated(JSONWriter jsonWriter, FieldDescriptor fd, List<?> values,
+			ProtobufMessageWriter writer) {
 		jsonWriter.startArray();
 		for (int i = 0; i < values.size(); i++) {
 			if (i > 0)
 				jsonWriter.writeComma();
-			writeValue(jsonWriter, fd, values.get(i));
+			writeValue(jsonWriter, fd, values.get(i), writer);
 		}
 		jsonWriter.endArray();
 	}
@@ -156,13 +160,14 @@ public final class FieldWriter {
 	 * proto3 JSON (including numeric and boolean keys). Empty maps should be
 	 * skipped by the caller.
 	 */
-	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries) {
+	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries,
+			ProtobufMessageWriter writer) {
 		jsonWriter.startObject();
 		for (Object entry : entries) {
 			MapEntry<?, ?> mapEntry = (MapEntry<?, ?>) entry;
 			jsonWriter.writeName(mapEntry.getKey().toString());
 			jsonWriter.writeColon();
-			writeValue(jsonWriter, valueDescriptor, mapEntry.getValue());
+			writeValue(jsonWriter, valueDescriptor, mapEntry.getValue(), writer);
 		}
 		jsonWriter.endObject();
 	}

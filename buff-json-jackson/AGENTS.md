@@ -24,8 +24,9 @@ io.suboptimal.buffjson.jackson/
 3. **Type resolution**: `ProtobufSerializers` (extends `Serializers.Base`) returns the serializer
    for any `Message` subclass. `ProtobufDeserializers` (extends `Deserializers.Base`) creates a
    type-specific deserializer per `Message` subclass.
-4. **TypeRegistry**: Optional constructor parameter for `google.protobuf.Any` support. Passed
-   through to the underlying `BuffJsonEncoder`/`BuffJsonDecoder`.
+4. **Encoder/Decoder injection**: Constructor accepts pre-configured `BuffJsonEncoder` and
+   `BuffJsonDecoder` instances. For `google.protobuf.Any` support, pass encoder/decoder with
+   `setTypeRegistry()`. Default no-arg constructor creates default encoder/decoder via `BuffJson.encoder()`/`BuffJson.decoder()`.
 
 ## Design Decisions
 

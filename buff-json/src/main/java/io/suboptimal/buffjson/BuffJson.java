@@ -1,11 +1,5 @@
 package io.suboptimal.buffjson;
 
-import com.alibaba.fastjson2.JSONFactory;
-import com.google.protobuf.TypeRegistry;
-
-import io.suboptimal.buffjson.internal.ProtobufReaderModule;
-import io.suboptimal.buffjson.internal.ProtobufWriterModule;
-
 /**
  * Entry point for fast proto3 JSON serialization and deserialization.
  *
@@ -33,22 +27,18 @@ import io.suboptimal.buffjson.internal.ProtobufWriterModule;
  * BuffJsonEncoder encoder = BuffJson.encoder()
  * 		.setTypeRegistry(TypeRegistry.newBuilder().add(MyMessage.getDescriptor()).build());
  * }</pre>
+ *
+ * <h3>Mixed pojo + protobuf (fastjson2 registration)</h3>
+ *
+ * <pre>{@code
+ * BuffJsonEncoder encoder = BuffJson.encoder();
+ * JSONFactory.getDefaultObjectWriterProvider().register(encoder.writerModule());
+ *
+ * BuffJsonDecoder decoder = BuffJson.decoder();
+ * JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
+ * }</pre>
  */
 public final class BuffJson {
-
-	static {
-		JSONFactory.getDefaultObjectWriterProvider().register(ProtobufWriterModule.INSTANCE);
-		JSONFactory.getDefaultObjectReaderProvider().register(ProtobufReaderModule.INSTANCE);
-	}
-
-	/** ThreadLocal holding the active TypeRegistry for the current encode call. */
-	public static final ThreadLocal<TypeRegistry> ACTIVE_REGISTRY = new ThreadLocal<>();
-
-	/**
-	 * When set to {@code true}, generated encoders and decoders are bypassed and
-	 * the runtime reflection path is used.
-	 */
-	public static final ThreadLocal<Boolean> SKIP_GENERATED = new ThreadLocal<>();
 
 	private BuffJson() {
 	}

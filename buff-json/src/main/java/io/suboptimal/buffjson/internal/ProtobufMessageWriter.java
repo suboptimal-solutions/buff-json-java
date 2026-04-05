@@ -8,12 +8,17 @@ import com.alibaba.fastjson2.writer.ObjectWriter;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
+import com.google.protobuf.TypeRegistry;
 
-import io.suboptimal.buffjson.BuffJson;
 import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;
 /**
  * Core serialization logic for protobuf messages. Implements fastjson2's
  * {@link ObjectWriter} to produce proto3-spec-compliant JSON.
+ *
+ * <p>
+ * Holds settings as instance fields ({@code typeRegistry},
+ * {@code useGenerated}) and passes {@code this} through the call chain — no
+ * ThreadLocals.
  *
  * <p>
  * For each message:
@@ -36,9 +41,18 @@ import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;
  */
 public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 
-	public static final ProtobufMessageWriter INSTANCE = new ProtobufMessageWriter();
+	public static final ProtobufMessageWriter INSTANCE = new ProtobufMessageWriter(null, true);
 
-	private ProtobufMessageWriter() {
+	private final TypeRegistry typeRegistry;
+	private final boolean useGenerated;
+
+	public ProtobufMessageWriter(TypeRegistry typeRegistry, boolean useGenerated) {
+		this.typeRegistry = typeRegistry;
+		this.useGenerated = useGenerated;
+	}
+
+	public TypeRegistry typeRegistry() {
+		return typeRegistry;
 	}
 
 	@Override
@@ -60,12 +74,11 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 	 * Writes all non-default fields of a message without the surrounding braces.
 	 * Uses a generated encoder if one is registered for this message type.
 	 */
-	static void writeFields(JSONWriter jsonWriter, Message message) {
-		if (GeneratedEncoderRegistry.hasEncoders() && Boolean.TRUE != BuffJson.SKIP_GENERATED.get()
-				&& !(message instanceof DynamicMessage)) {
+	void writeFields(JSONWriter jsonWriter, Message message) {
+		if (useGenerated && GeneratedEncoderRegistry.hasEncoders() && !(message instanceof DynamicMessage)) {
 			BuffJsonGeneratedEncoder<Message> encoder = GeneratedEncoderRegistry.get(message.getDescriptorForType());
 			if (encoder != null) {
-				encoder.writeFields(jsonWriter, message);
+				encoder.writeFields(jsonWriter, message, this);
 				return;
 			}
 		}
@@ -81,13 +94,13 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				if (entries.isEmpty())
 					continue;
 				jsonWriter.writeNameRaw(fieldInfo.nameWithColon());
-				FieldWriter.writeMap(jsonWriter, fieldInfo.mapValueDescriptor(), entries);
+				FieldWriter.writeMap(jsonWriter, fieldInfo.mapValueDescriptor(), entries, this);
 			} else if (fieldInfo.isRepeated()) {
 				List<?> values = (List<?>) message.getField(fd);
 				if (values.isEmpty())
 					continue;
 				jsonWriter.writeNameRaw(fieldInfo.nameWithColon());
-				FieldWriter.writeRepeated(jsonWriter, fd, values);
+				FieldWriter.writeRepeated(jsonWriter, fd, values, this);
 			} else {
 				Object value = message.getField(fd);
 				if (fieldInfo.hasPresence()) {
@@ -97,7 +110,7 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 					continue;
 				}
 				jsonWriter.writeNameRaw(fieldInfo.nameWithColon());
-				FieldWriter.writeValue(jsonWriter, fd, value);
+				FieldWriter.writeValue(jsonWriter, fd, value, this);
 			}
 		}
 	}

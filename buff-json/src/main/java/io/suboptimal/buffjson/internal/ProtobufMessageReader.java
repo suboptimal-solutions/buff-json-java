@@ -9,12 +9,17 @@ import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
+import com.google.protobuf.TypeRegistry;
 
-import io.suboptimal.buffjson.BuffJson;
 import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;
 /**
  * Core deserialization logic for protobuf messages. Implements fastjson2's
  * {@link ObjectReader} to parse proto3-spec-compliant JSON.
+ *
+ * <p>
+ * Holds settings as instance fields ({@code typeRegistry},
+ * {@code useGenerated}) and passes {@code this} through the call chain — no
+ * ThreadLocals.
  *
  * <p>
  * For each message:
@@ -28,11 +33,20 @@ import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;
  */
 public final class ProtobufMessageReader implements ObjectReader<Message> {
 
-	public static final ProtobufMessageReader INSTANCE = new ProtobufMessageReader();
+	public static final ProtobufMessageReader INSTANCE = new ProtobufMessageReader(null, true);
 
 	private static final ConcurrentHashMap<Class<?>, Message> DEFAULT_INSTANCE_CACHE = new ConcurrentHashMap<>();
 
-	private ProtobufMessageReader() {
+	private final TypeRegistry typeRegistry;
+	private final boolean useGenerated;
+
+	public ProtobufMessageReader(TypeRegistry typeRegistry, boolean useGenerated) {
+		this.typeRegistry = typeRegistry;
+		this.useGenerated = useGenerated;
+	}
+
+	public TypeRegistry typeRegistry() {
+		return typeRegistry;
 	}
 
 	@Override
@@ -51,19 +65,15 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 		Message defaultInstance = getDefaultInstance(clazz);
 		Descriptor descriptor = defaultInstance.getDescriptorForType();
 
-		Message generated = tryGeneratedDecode(reader, descriptor);
-		if (generated != null) {
-			return generated;
-		}
-
-		return readMessageRuntime(reader, descriptor, defaultInstance);
+		return readMessage(reader, descriptor);
 	}
 
 	/**
-	 * Reads a message using the runtime reflection-based path. Used internally for
-	 * nested messages and WKT Any content.
+	 * Reads a message using the generated path if available, otherwise the runtime
+	 * reflection-based path. Falls back to DynamicMessage for the runtime path.
+	 * Used for nested messages where the concrete class is not known.
 	 */
-	public static Message readMessage(JSONReader reader, Descriptor descriptor) {
+	public Message readMessage(JSONReader reader, Descriptor descriptor) {
 		Message generated = tryGeneratedDecode(reader, descriptor);
 		if (generated != null) {
 			return generated;
@@ -73,11 +83,25 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 		return readMessageRuntime(reader, descriptor, defaultInstance);
 	}
 
-	private static Message tryGeneratedDecode(JSONReader reader, Descriptor descriptor) {
-		if (GeneratedDecoderRegistry.hasDecoders() && Boolean.TRUE != BuffJson.SKIP_GENERATED.get()) {
+	/**
+	 * Reads a message using the generated path if available, otherwise the runtime
+	 * reflection-based path with the provided typed default instance. Used for
+	 * top-level decoding where the concrete Message class is known.
+	 */
+	public Message readMessage(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
+		Message generated = tryGeneratedDecode(reader, descriptor);
+		if (generated != null) {
+			return generated;
+		}
+
+		return readMessageRuntime(reader, descriptor, defaultInstance);
+	}
+
+	private Message tryGeneratedDecode(JSONReader reader, Descriptor descriptor) {
+		if (useGenerated && GeneratedDecoderRegistry.hasDecoders()) {
 			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(descriptor);
 			if (decoder != null) {
-				return decoder.readMessage(reader);
+				return decoder.readMessage(reader, this);
 			}
 		}
 		return null;
@@ -87,7 +111,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 * Runtime reflection-based message reading. Always uses the descriptor/builder
 	 * path.
 	 */
-	static Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
+	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
 		Message.Builder builder = defaultInstance.newBuilderForType();
 		MessageSchema schema = MessageSchema.forDescriptor(descriptor);
 
@@ -116,11 +140,11 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 				continue;
 			}
 			if (fieldInfo.isMapField()) {
-				FieldReader.readMap(reader, builder, fd);
+				FieldReader.readMap(reader, builder, fd, this);
 			} else if (fieldInfo.isRepeated()) {
-				FieldReader.readRepeated(reader, builder, fd);
+				FieldReader.readRepeated(reader, builder, fd, this);
 			} else {
-				Object value = FieldReader.readValue(reader, fd);
+				Object value = FieldReader.readValue(reader, fd, this);
 				builder.setField(fd, value);
 			}
 		}
@@ -129,7 +153,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	}
 
 	@SuppressWarnings("unchecked")
-	static <T extends Message> T getDefaultInstance(Class<?> clazz) {
+	public static <T extends Message> T getDefaultInstance(Class<?> clazz) {
 		return (T) DEFAULT_INSTANCE_CACHE.computeIfAbsent(clazz, c -> {
 			try {
 				return (Message) c.getMethod("getDefaultInstance").invoke(null);

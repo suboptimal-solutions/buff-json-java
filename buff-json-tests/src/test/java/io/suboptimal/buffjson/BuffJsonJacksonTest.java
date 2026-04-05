@@ -184,7 +184,9 @@ class BuffJsonJacksonTest {
 
 			var registry = TypeRegistry.newBuilder().add(NestedMessage.getDescriptor()).build();
 			var mapperWithRegistry = JsonMapper.builder().enable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
-					.addModule(new BuffJsonJacksonModule(registry)).build();
+					.addModule(new BuffJsonJacksonModule(BuffJson.encoder().setTypeRegistry(registry),
+							BuffJson.decoder().setTypeRegistry(registry)))
+					.build();
 			var printerWithRegistry = JsonFormat.printer().omittingInsignificantWhitespace()
 					.usingTypeRegistry(registry);
 

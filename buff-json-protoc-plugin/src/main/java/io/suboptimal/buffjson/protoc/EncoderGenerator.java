@@ -20,9 +20,8 @@ import com.google.protobuf.Descriptors.OneofDescriptor;
  * <li><b>INSTANCE singleton</b> — enables direct calls from other generated
  * encoders
  * <li><b>Direct nested encoder calls</b> — nested messages call
- * {@code FooJsonEncoder.INSTANCE.writeFields()} directly, bypassing
- * {@code GeneratedEncoderRegistry} lookup (bypassed), ThreadLocal reads, and
- * instanceof checks
+ * {@code FooJsonEncoder.INSTANCE.writeFields(jw, msg, writer)} directly,
+ * bypassing {@code GeneratedEncoderRegistry} lookup and instanceof checks
  * <li><b>Inline WKT Timestamp/Duration</b> — calls
  * {@code WellKnownTypes.writeTimestampDirect()} with typed accessors, bypassing
  * descriptor string switch, field cache lookup, and reflection+boxing
@@ -109,7 +108,7 @@ final class EncoderGenerator {
 		// writeFields()
 		sb.append("    @Override\n");
 		sb.append("    public void writeFields(JSONWriter jsonWriter, ").append(messageClassName)
-				.append(" message) {\n");
+				.append(" message, io.suboptimal.buffjson.internal.ProtobufMessageWriter writer) {\n");
 
 		// Collect fields that are part of oneofs (we'll handle them via the oneof
 		// switch)
@@ -481,20 +480,18 @@ final class EncoderGenerator {
 			sb.append("                }\n");
 		} else if (WELL_KNOWN_TYPES.contains(fullName)) {
 			sb.append("                io.suboptimal.buffjson.internal.WellKnownTypes.write(jsonWriter, ").append(expr)
-					.append(");\n");
+					.append(", writer);\n");
 		} else {
 			String encoderClass = protoToEncoderClass.get(fullName);
 			if (encoderClass != null) {
 				// Direct call to the nested type's generated encoder — bypasses registry
-				// lookup, ThreadLocal reads, and instanceof checks
+				// lookup and instanceof checks
 				sb.append("                jsonWriter.startObject();\n");
 				sb.append("                ").append(encoderClass).append(".INSTANCE.writeFields(jsonWriter, ")
-						.append(expr).append(");\n");
+						.append(expr).append(", writer);\n");
 				sb.append("                jsonWriter.endObject();\n");
 			} else {
-				sb.append(
-						"                io.suboptimal.buffjson.internal.ProtobufMessageWriter.INSTANCE.writeMessage(jsonWriter, ")
-						.append(expr).append(");\n");
+				sb.append("                writer.writeMessage(jsonWriter, ").append(expr).append(");\n");
 			}
 		}
 	}

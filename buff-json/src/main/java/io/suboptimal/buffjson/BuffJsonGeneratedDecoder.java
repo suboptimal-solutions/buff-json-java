@@ -3,6 +3,8 @@ package io.suboptimal.buffjson;
 import com.alibaba.fastjson2.JSONReader;
 import com.google.protobuf.Message;
 
+import io.suboptimal.buffjson.internal.ProtobufMessageReader;
+
 /**
  * Generated per-message-type decoder that uses typed setters on the Builder
  * instead of reflection-style {@code setField()}.
@@ -25,6 +27,10 @@ public interface BuffJsonGeneratedDecoder<T extends Message> {
 	 * Reads a JSON object and returns a built protobuf message. The caller should
 	 * NOT have consumed the opening '{' — this method reads the full JSON object
 	 * including braces.
+	 *
+	 * @param msgReader
+	 *            the message reader carrying settings (typeRegistry, useGenerated)
+	 *            for recursive nested message reads
 	 */
-	T readMessage(JSONReader reader);
+	T readMessage(JSONReader reader, ProtobufMessageReader msgReader);
 }
