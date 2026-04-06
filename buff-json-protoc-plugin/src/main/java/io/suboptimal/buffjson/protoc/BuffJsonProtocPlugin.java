@@ -48,74 +48,86 @@ public final class BuffJsonProtocPlugin {
 		response.setSupportedFeatures(CodeGeneratorResponse.Feature.FEATURE_PROTO3_OPTIONAL_VALUE);
 
 		try {
-			Map<String, FileDescriptor> fileDescriptors = buildFileDescriptors(request);
-			Map<String, String> protoToJavaClass = buildClassNameMap(fileDescriptors);
-			Set<String> filesToGenerate = new HashSet<>(request.getFileToGenerateList());
-
-			// Pre-compute encoder and decoder class names so generated code can
-			// reference each other directly (bypassing the registry)
-			Map<String, String> protoToEncoderClass = new HashMap<>();
-			Map<String, String> protoToDecoderClass = new HashMap<>();
-			for (FileDescriptor fileDesc : fileDescriptors.values()) {
-				if (!filesToGenerate.contains(fileDesc.getName()))
-					continue;
-				String javaPackage = getJavaPackage(fileDesc);
-				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
-					collectCodegenNames(msgDesc, javaPackage, protoToEncoderClass, "JsonEncoder");
-					collectCodegenNames(msgDesc, javaPackage, protoToDecoderClass, "JsonDecoder");
-				}
-			}
-
-			List<String> encoderClassNames = new ArrayList<>();
-			List<String> decoderClassNames = new ArrayList<>();
-			List<String> commentClassNames = new ArrayList<>();
-
-			for (FileDescriptor fileDesc : fileDescriptors.values()) {
-				if (!filesToGenerate.contains(fileDesc.getName()))
-					continue;
-
-				String javaPackage = getJavaPackage(fileDesc);
-
-				for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
-					generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
-							encoderClassNames, "JsonEncoder", EncoderGenerator::generate);
-					generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToDecoderClass,
-							decoderClassNames, "JsonDecoder", DecoderGenerator::generate);
-				}
-
-				// Generate comment provider per proto file
-				FileDescriptorProto fdp = fileDesc.toProto();
-				String commentClassName = getOuterClassName(fileDesc) + "Comments";
-				String commentSource = CommentGenerator.generate(fdp, javaPackage, commentClassName);
-				if (commentSource != null) {
-					String commentFullName = javaPackage + "." + commentClassName;
-					String commentFilePath = javaPackage.replace('.', '/') + "/" + commentClassName + ".java";
-					response.addFile(CodeGeneratorResponse.File.newBuilder().setName(commentFilePath)
-							.setContent(commentSource).build());
-					commentClassNames.add(commentFullName);
-				}
-			}
-
-			if (!encoderClassNames.isEmpty()) {
-				response.addFile(CodeGeneratorResponse.File.newBuilder()
-						.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedEncoder")
-						.setContent(String.join("\n", encoderClassNames) + "\n").build());
-			}
-			if (!decoderClassNames.isEmpty()) {
-				response.addFile(CodeGeneratorResponse.File.newBuilder()
-						.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedDecoder")
-						.setContent(String.join("\n", decoderClassNames) + "\n").build());
-			}
-			if (!commentClassNames.isEmpty()) {
-				response.addFile(CodeGeneratorResponse.File.newBuilder()
-						.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedComments")
-						.setContent(String.join("\n", commentClassNames) + "\n").build());
-			}
+			generate(request, response);
 		} catch (Exception e) {
 			response.setError(e.getMessage());
 		}
 
 		response.build().writeTo(System.out);
+	}
+
+	/**
+	 * Generates JSON encoder, decoder, and comment classes for the given protoc
+	 * request, adding all output files to the provided response builder.
+	 *
+	 * <p>
+	 * This method can be called directly to compose buff-json code generation
+	 * within another protoc plugin. Exceptions are propagated to the caller.
+	 */
+	public static void generate(CodeGeneratorRequest request, CodeGeneratorResponse.Builder response) throws Exception {
+		Map<String, FileDescriptor> fileDescriptors = buildFileDescriptors(request);
+		Map<String, String> protoToJavaClass = buildClassNameMap(fileDescriptors);
+		Set<String> filesToGenerate = new HashSet<>(request.getFileToGenerateList());
+
+		// Pre-compute encoder and decoder class names so generated code can
+		// reference each other directly (bypassing the registry)
+		Map<String, String> protoToEncoderClass = new HashMap<>();
+		Map<String, String> protoToDecoderClass = new HashMap<>();
+		for (FileDescriptor fileDesc : fileDescriptors.values()) {
+			if (!filesToGenerate.contains(fileDesc.getName()))
+				continue;
+			String javaPackage = getJavaPackage(fileDesc);
+			for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
+				collectCodegenNames(msgDesc, javaPackage, protoToEncoderClass, "JsonEncoder");
+				collectCodegenNames(msgDesc, javaPackage, protoToDecoderClass, "JsonDecoder");
+			}
+		}
+
+		List<String> encoderClassNames = new ArrayList<>();
+		List<String> decoderClassNames = new ArrayList<>();
+		List<String> commentClassNames = new ArrayList<>();
+
+		for (FileDescriptor fileDesc : fileDescriptors.values()) {
+			if (!filesToGenerate.contains(fileDesc.getName()))
+				continue;
+
+			String javaPackage = getJavaPackage(fileDesc);
+
+			for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
+				generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
+						encoderClassNames, "JsonEncoder", EncoderGenerator::generate);
+				generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToDecoderClass,
+						decoderClassNames, "JsonDecoder", DecoderGenerator::generate);
+			}
+
+			// Generate comment provider per proto file
+			FileDescriptorProto fdp = fileDesc.toProto();
+			String commentClassName = getOuterClassName(fileDesc) + "Comments";
+			String commentSource = CommentGenerator.generate(fdp, javaPackage, commentClassName);
+			if (commentSource != null) {
+				String commentFullName = javaPackage + "." + commentClassName;
+				String commentFilePath = javaPackage.replace('.', '/') + "/" + commentClassName + ".java";
+				response.addFile(CodeGeneratorResponse.File.newBuilder().setName(commentFilePath)
+						.setContent(commentSource).build());
+				commentClassNames.add(commentFullName);
+			}
+		}
+
+		if (!encoderClassNames.isEmpty()) {
+			response.addFile(CodeGeneratorResponse.File.newBuilder()
+					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedEncoder")
+					.setContent(String.join("\n", encoderClassNames) + "\n").build());
+		}
+		if (!decoderClassNames.isEmpty()) {
+			response.addFile(CodeGeneratorResponse.File.newBuilder()
+					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedDecoder")
+					.setContent(String.join("\n", decoderClassNames) + "\n").build());
+		}
+		if (!commentClassNames.isEmpty()) {
+			response.addFile(CodeGeneratorResponse.File.newBuilder()
+					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedComments")
+					.setContent(String.join("\n", commentClassNames) + "\n").build());
+		}
 	}
 
 	private static void collectCodegenNames(Descriptor msgDesc, String javaPackage, Map<String, String> out,
