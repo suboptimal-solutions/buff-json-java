@@ -11,6 +11,7 @@ import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
 
 import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;
+import io.suboptimal.buffjson.internal.typed.TypedMessageSchema;
 /**
  * Core serialization logic for protobuf messages. Implements fastjson2's
  * {@link ObjectWriter} to produce proto3-spec-compliant JSON.
@@ -79,6 +80,16 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 			BuffJsonGeneratedEncoder<Message> encoder = GeneratedEncoderRegistry.get(message.getDescriptorForType());
 			if (encoder != null) {
 				encoder.writeFields(jsonWriter, message, this);
+				return;
+			}
+		}
+
+		// Typed accessors: LambdaMetafactory-based, avoids getField() reflection +
+		// boxing. Always used for concrete message types (not DynamicMessage).
+		if (!(message instanceof DynamicMessage)) {
+			var typed = TypedMessageSchema.forMessage(message.getDescriptorForType(), message.getClass());
+			if (typed != null) {
+				typed.writeFields(jsonWriter, message, this);
 				return;
 			}
 		}
