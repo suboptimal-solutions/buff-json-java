@@ -1,7 +1,6 @@
 package io.suboptimal.buffjson.internal;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -159,29 +158,50 @@ public final class WellKnownTypes {
 	 * encoders that know the field type at generation time.
 	 */
 	public static void writeTimestampDirect(JSONWriter jsonWriter, long seconds, int nanos) {
-		// Max: "yyyy-MM-ddTHH:mm:ss.nnnnnnnnnZ" = 30 bytes
-		byte[] buf = new byte[30];
-		var zdt = Instant.ofEpochSecond(seconds, nanos).atOffset(ZoneOffset.UTC);
+		// Exact-size buffer: "yyyy-MM-ddTHH:mm:ssZ" = 20, +4 millis, +7 micros, +10
+		// nanos
+		int nanosLen = nanosDigitCount(nanos);
+		byte[] buf = new byte[20 + nanosLen];
+
+		// Decompose epoch seconds into date/time using integer arithmetic only
+		// (Howard Hinnant's civil_from_days algorithm — no Instant/OffsetDateTime
+		// allocation)
+		long daysSinceEpoch = Math.floorDiv(seconds, 86400);
+		int timeOfDay = Math.floorMod(seconds, 86400);
+
+		// civil_from_days: convert days since 1970-01-01 to (year, month, day)
+		long z = daysSinceEpoch + 719468; // shift to epoch 0000-03-01
+		long era = (z >= 0 ? z : z - 146096) / 146097;
+		long doe = z - era * 146097; // day of era [0, 146096]
+		long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+		long y = yoe + era * 400;
+		long doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+		long mp = (5 * doy + 2) / 153; // month index [0, 11]
+		int day = (int) (doy - (153 * mp + 2) / 5 + 1);
+		int month = (int) (mp < 10 ? mp + 3 : mp - 9);
+		int year = (int) (y + (month <= 2 ? 1 : 0));
+
+		int hour = timeOfDay / 3600;
+		int minute = (timeOfDay % 3600) / 60;
+		int second = timeOfDay % 60;
+
 		int off = 0;
-		off = writeYear(buf, off, zdt.getYear());
+		off = writeYear(buf, off, year);
 		buf[off++] = '-';
-		off = write2Digits(buf, off, zdt.getMonthValue());
+		off = write2Digits(buf, off, month);
 		buf[off++] = '-';
-		off = write2Digits(buf, off, zdt.getDayOfMonth());
+		off = write2Digits(buf, off, day);
 		buf[off++] = 'T';
-		off = write2Digits(buf, off, zdt.getHour());
+		off = write2Digits(buf, off, hour);
 		buf[off++] = ':';
-		off = write2Digits(buf, off, zdt.getMinute());
+		off = write2Digits(buf, off, minute);
 		buf[off++] = ':';
-		off = write2Digits(buf, off, zdt.getSecond());
+		off = write2Digits(buf, off, second);
 		if (nanos != 0) {
 			buf[off++] = '.';
 			off = appendNanosBytes(buf, off, nanos);
 		}
-		buf[off++] = 'Z';
-		if (off < buf.length) {
-			buf = java.util.Arrays.copyOf(buf, off);
-		}
+		buf[off] = 'Z';
 		jsonWriter.writeStringLatin1(buf);
 	}
 
@@ -198,24 +218,67 @@ public final class WellKnownTypes {
 	 * generation time.
 	 */
 	public static void writeDurationDirect(JSONWriter jsonWriter, long seconds, int nanos) {
-		// Max: "-9223372036854775807.999999999s" = 31 bytes
-		byte[] buf = new byte[31];
+		boolean negative = seconds < 0 || nanos < 0;
+		long absSeconds = Math.abs(seconds);
+		int absNanos = Math.abs(nanos);
+		int nanosLen = nanosDigitCount(absNanos);
+		// Exact size: optional '-' + digits(seconds) + nanosLen + 's'
+		int size = (negative ? 1 : 0) + longDigitCount(absSeconds) + nanosLen + 1;
+		byte[] buf = new byte[size];
 		int off = 0;
-		if (seconds < 0 || nanos < 0) {
+		if (negative) {
 			buf[off++] = '-';
-			seconds = Math.abs(seconds);
-			nanos = Math.abs(nanos);
 		}
-		off = writeLong(buf, off, seconds);
-		if (nanos != 0) {
+		off = writeLong(buf, off, absSeconds);
+		if (absNanos != 0) {
 			buf[off++] = '.';
-			off = appendNanosBytes(buf, off, nanos);
+			off = appendNanosBytes(buf, off, absNanos);
 		}
-		buf[off++] = 's';
-		if (off < buf.length) {
-			buf = java.util.Arrays.copyOf(buf, off);
-		}
+		buf[off] = 's';
 		jsonWriter.writeStringLatin1(buf);
+	}
+
+	/**
+	 * Writes an unsigned long as a quoted JSON string directly into the writer,
+	 * bypassing {@code Long.toUnsignedString()} String allocation. Used for proto3
+	 * uint64/fixed64 fields.
+	 */
+	public static void writeUnsignedLongString(JSONWriter jsonWriter, long value) {
+		if (value >= 0) {
+			// Fits in signed range — delegate to fastjson2's writeString(long)
+			jsonWriter.writeString(value);
+			return;
+		}
+		// Negative signed = large unsigned: format into byte[] and write as Latin1
+		// Max unsigned long is 18446744073709551615 = 20 digits
+		byte[] buf = new byte[20];
+		int off = writeUnsignedLong(buf, 0, value);
+		buf = java.util.Arrays.copyOf(buf, off);
+		jsonWriter.writeStringLatin1(buf);
+	}
+
+	/**
+	 * Writes an unsigned long value as ASCII digits into a byte array. Handles
+	 * values where the signed representation is negative (i.e. values ≥ 2^63).
+	 * Returns the new offset.
+	 */
+	private static int writeUnsignedLong(byte[] buf, int off, long value) {
+		// For unsigned values ≥ 2^63, use Long.divideUnsigned
+		int start = off;
+		long remaining = value;
+		while (Long.compareUnsigned(remaining, 0) != 0) {
+			long q = Long.divideUnsigned(remaining, 10);
+			int r = (int) Long.remainderUnsigned(remaining, 10);
+			buf[off++] = (byte) (r + '0');
+			remaining = q;
+		}
+		// Reverse the digits
+		for (int i = start, j = off - 1; i < j; i++, j--) {
+			byte tmp = buf[i];
+			buf[i] = buf[j];
+			buf[j] = tmp;
+		}
+		return off;
 	}
 
 	/**
@@ -336,6 +399,35 @@ public final class WellKnownTypes {
 			}
 			return result;
 		});
+	}
+
+	/**
+	 * Returns the number of characters needed for the fractional seconds portion
+	 * (including the dot). Returns 0 if nanos == 0, 4 for millis, 7 for micros, 10
+	 * for nanos.
+	 */
+	private static int nanosDigitCount(int nanos) {
+		if (nanos == 0)
+			return 0;
+		if (nanos % 1_000_000 == 0)
+			return 4; // .nnn
+		if (nanos % 1_000 == 0)
+			return 7; // .nnnnnn
+		return 10; // .nnnnnnnnn
+	}
+
+	/**
+	 * Returns the number of decimal digits in a non-negative long value.
+	 */
+	private static int longDigitCount(long value) {
+		if (value == 0)
+			return 1;
+		int digits = 0;
+		while (value > 0) {
+			digits++;
+			value /= 10;
+		}
+		return digits;
 	}
 
 	/** Writes a 4-digit year into a byte array. Returns the new offset. */

@@ -68,9 +68,10 @@ public final class FieldWriter {
 				// Proto3 JSON spec: int64/uint64/sint64/sfixed64/fixed64 are quoted
 				var type = fd.getType();
 				if (type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64) {
-					jsonWriter.writeString(Long.toUnsignedString((long) value));
+					WellKnownTypes.writeUnsignedLongString(jsonWriter, (long) value);
 				} else {
-					jsonWriter.writeString(Long.toString((long) value));
+					// writeString(long) writes the quoted number directly — no String allocation
+					jsonWriter.writeString((long) value);
 				}
 			}
 			case FLOAT -> writeFloatValue(jsonWriter, (float) value);
@@ -79,7 +80,7 @@ public final class FieldWriter {
 			case STRING -> jsonWriter.writeString((String) value);
 			case BYTE_STRING -> {
 				ByteString bytes = (ByteString) value;
-				jsonWriter.writeString(WellKnownTypes.BASE64.encodeToString(bytes.toByteArray()));
+				jsonWriter.writeBase64(bytes.toByteArray());
 			}
 			case ENUM -> {
 				if (value instanceof EnumValueDescriptor enumValue) {
