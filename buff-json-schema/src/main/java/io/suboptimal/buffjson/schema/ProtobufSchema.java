@@ -99,8 +99,10 @@ public final class ProtobufSchema {
 	private final Map<FileDescriptor, Map<List<Integer>, String>> commentCache = new IdentityHashMap<>();
 	private final Map<String, Map<String, Object>> defs = new LinkedHashMap<>();
 	private final Set<String> inProgress = new HashSet<>();
+	private final Descriptor rootDescriptor;
 
-	private ProtobufSchema() {
+	private ProtobufSchema(Descriptor rootDescriptor) {
+		this.rootDescriptor = rootDescriptor;
 	}
 
 	/**
@@ -111,7 +113,7 @@ public final class ProtobufSchema {
 	 * @return a JSON Schema as a {@code Map<String, Object>}
 	 */
 	public static Map<String, Object> generate(Descriptor descriptor) {
-		ProtobufSchema generator = new ProtobufSchema();
+		ProtobufSchema generator = new ProtobufSchema(descriptor);
 		Map<String, Object> schema = generator.schemaForMessage(descriptor);
 		schema.put("$schema", SCHEMA_DRAFT);
 		if (!generator.defs.isEmpty()) {
@@ -143,9 +145,14 @@ public final class ProtobufSchema {
 
 		String fullName = descriptor.getFullName();
 
-		// Cycle detection: if we're already processing this type, emit a $ref
 		if (inProgress.contains(fullName)) {
-			defs.putIfAbsent(fullName, new LinkedHashMap<>());
+			// Cycle detected — placeholder so the $ref resolves after generation completes
+			defs.computeIfAbsent(fullName, k -> new LinkedHashMap<>());
+			return ref(fullName);
+		}
+
+		// Already generated — return $ref
+		if (defs.containsKey(fullName)) {
 			return ref(fullName);
 		}
 
@@ -198,8 +205,8 @@ public final class ProtobufSchema {
 
 		inProgress.remove(fullName);
 
-		// If this type was referenced recursively, store it in $defs
-		if (defs.containsKey(fullName)) {
+		// Non-root types always go to $defs; root only if self-referential
+		if (descriptor != rootDescriptor || defs.containsKey(fullName)) {
 			defs.put(fullName, schema);
 			return ref(fullName);
 		}
@@ -341,6 +348,13 @@ public final class ProtobufSchema {
 	}
 
 	private Map<String, Object> schemaForEnum(EnumDescriptor enumDesc) {
+		String fullName = enumDesc.getFullName();
+
+		// Already generated — return $ref
+		if (defs.containsKey(fullName)) {
+			return ref(fullName);
+		}
+
 		List<String> names = new ArrayList<>();
 		for (EnumValueDescriptor value : enumDesc.getValues()) {
 			names.add(value.getName());
@@ -355,7 +369,8 @@ public final class ProtobufSchema {
 			schema.put("description", enumComment);
 		}
 
-		return schema;
+		defs.put(fullName, schema);
+		return ref(fullName);
 	}
 
 	private Map<String, Object> schemaForMap(FieldDescriptor fd) {

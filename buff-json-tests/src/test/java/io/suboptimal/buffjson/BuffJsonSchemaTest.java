@@ -78,11 +78,17 @@ class BuffJsonSchemaTest {
 		Map<String, Object> schema = ProtobufSchema.generate(TestNesting.getDescriptor());
 
 		@SuppressWarnings("unchecked")
+		Map<String, Object> defs = (Map<String, Object>) schema.get("$defs");
+		assertNotNull(defs, "Named types should be in $defs");
+
+		@SuppressWarnings("unchecked")
 		Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-		// nested message has title
+		// nested message → $ref to $defs
+		assertRef("io.suboptimal.buffjson.proto.NestedMessage", props.get("nested"));
+
 		@SuppressWarnings("unchecked")
-		Map<String, Object> nestedSchema = (Map<String, Object>) props.get("nested");
+		Map<String, Object> nestedSchema = (Map<String, Object>) defs.get("io.suboptimal.buffjson.proto.NestedMessage");
 		assertEquals("object", nestedSchema.get("type"));
 		assertEquals("NestedMessage", nestedSchema.get("title"));
 		@SuppressWarnings("unchecked")
@@ -90,14 +96,17 @@ class BuffJsonSchemaTest {
 		assertEquals(Map.of("type", "integer"), nestedProps.get("value"));
 		assertEquals(Map.of("type", "string"), nestedProps.get("name"));
 
-		// repeated nested → array of objects
+		// repeated nested → array of $ref
 		@SuppressWarnings("unchecked")
 		Map<String, Object> repeatedNested = (Map<String, Object>) props.get("repeatedNested");
 		assertEquals("array", repeatedNested.get("type"));
+		assertRef("io.suboptimal.buffjson.proto.NestedMessage", repeatedNested.get("items"));
 
-		// enum field has title
+		// enum → $ref to $defs
+		assertRef("io.suboptimal.buffjson.proto.TestEnum", props.get("enumValue"));
+
 		@SuppressWarnings("unchecked")
-		Map<String, Object> enumSchema = (Map<String, Object>) props.get("enumValue");
+		Map<String, Object> enumSchema = (Map<String, Object>) defs.get("io.suboptimal.buffjson.proto.TestEnum");
 		assertEquals("string", enumSchema.get("type"));
 		assertEquals("TestEnum", enumSchema.get("title"));
 		assertEquals(List.of("TEST_ENUM_UNSPECIFIED", "TEST_ENUM_FOO", "TEST_ENUM_BAR", "TEST_ENUM_BAZ"),
@@ -149,13 +158,11 @@ class BuffJsonSchemaTest {
 		// map<string, int32> → object with additionalProperties: integer
 		assertMapOf(props.get("stringToInt32"), Map.of("type", "integer"));
 
-		// map<string, NestedMessage> → object with additionalProperties: object
+		// map<string, NestedMessage> → object with additionalProperties: $ref
 		@SuppressWarnings("unchecked")
 		Map<String, Object> msgMap = (Map<String, Object>) props.get("stringToMessage");
 		assertEquals("object", msgMap.get("type"));
-		@SuppressWarnings("unchecked")
-		Map<String, Object> addlProps = (Map<String, Object>) msgMap.get("additionalProperties");
-		assertEquals("object", addlProps.get("type"));
+		assertRef("io.suboptimal.buffjson.proto.NestedMessage", msgMap.get("additionalProperties"));
 	}
 
 	@Test
@@ -301,12 +308,12 @@ class BuffJsonSchemaTest {
 		Map<String, Object> mapsSchema = ProtobufSchema.generate(TestMaps.getDescriptor());
 		assertEquals("Map fields with various key types", mapsSchema.get("description"));
 
-		// Enum comment
+		// Enum comment — enum is in $defs
 		Map<String, Object> nestingSchema = ProtobufSchema.generate(TestNesting.getDescriptor());
 		@SuppressWarnings("unchecked")
-		Map<String, Object> nestingProps = (Map<String, Object>) nestingSchema.get("properties");
+		Map<String, Object> nestingDefs = (Map<String, Object>) nestingSchema.get("$defs");
 		@SuppressWarnings("unchecked")
-		Map<String, Object> enumSchema = (Map<String, Object>) nestingProps.get("enumValue");
+		Map<String, Object> enumSchema = (Map<String, Object>) nestingDefs.get("io.suboptimal.buffjson.proto.TestEnum");
 		assertEquals("Nested messages and enums", enumSchema.get("description"));
 
 		// NestedMessage has no comment — no description
@@ -315,6 +322,12 @@ class BuffJsonSchemaTest {
 	}
 
 	// --- assertion helpers ---
+
+	@SuppressWarnings("unchecked")
+	private void assertRef(String expectedFullName, Object schema) {
+		Map<String, Object> s = (Map<String, Object>) schema;
+		assertEquals("#/$defs/" + expectedFullName, s.get("$ref"));
+	}
 
 	@SuppressWarnings("unchecked")
 	private void assertFloatSchema(Object schema) {

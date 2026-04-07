@@ -86,18 +86,24 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestNesting.class);
 		Map<String, Schema> props = properties(resolved.schema);
 
+		// nested message → $ref to components
 		Schema nested = props.get("nested");
-		assertType("object", nested);
-		assertEquals("NestedMessage", nested.getTitle());
+		assertNotNull(nested.get$ref(), "nested should be a $ref");
 
-		Map<String, Schema> nestedProps = properties(nested);
+		Schema nestedDef = resolved.referencedSchemas.get("io.suboptimal.buffjson.proto.NestedMessage");
+		assertNotNull(nestedDef, "NestedMessage should be in referencedSchemas");
+		assertType("object", nestedDef);
+		assertEquals("NestedMessage", nestedDef.getTitle());
+
+		Map<String, Schema> nestedProps = properties(nestedDef);
 		assertType("integer", nestedProps.get("value"));
 		assertType("string", nestedProps.get("name"));
 
-		// repeated nested → array
+		// repeated nested → array with $ref items
 		Schema repeatedNested = props.get("repeatedNested");
 		assertType("array", repeatedNested);
 		assertNotNull(repeatedNested.getItems());
+		assertNotNull(repeatedNested.getItems().get$ref(), "repeated items should be a $ref");
 	}
 
 	@Test
@@ -120,8 +126,13 @@ class BuffJsonSwaggerTest {
 	@Test
 	void enumFields() {
 		ResolvedSchema resolved = resolve(TestNesting.class);
-		Schema enumSchema = properties(resolved.schema).get("enumValue");
 
+		// enum → $ref to components
+		Schema enumRef = properties(resolved.schema).get("enumValue");
+		assertNotNull(enumRef.get$ref(), "enum should be a $ref");
+
+		Schema enumSchema = resolved.referencedSchemas.get("io.suboptimal.buffjson.proto.TestEnum");
+		assertNotNull(enumSchema, "TestEnum should be in referencedSchemas");
 		assertType("string", enumSchema);
 		assertEquals("TestEnum", enumSchema.getTitle());
 
