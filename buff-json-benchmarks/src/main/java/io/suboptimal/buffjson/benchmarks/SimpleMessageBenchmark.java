@@ -38,13 +38,23 @@ public class SimpleMessageBenchmark {
 	}
 
 	@Benchmark
-	public String buffJsonCompiled() {
+	public String compiledUtf16() {
 		return BUFF_JSON.encode(randomMessages[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String buffJsonRuntime() {
+	public void compiledUtf8(org.openjdk.jmh.infra.Blackhole bh) {
+		bh.consume(BUFF_JSON.encodeToBytes(randomMessages[index++ & MASK]));
+	}
+
+	@Benchmark
+	public String runtimeUtf16() {
 		return RUNTIME_ENCODER.encode(randomMessages[index++ & MASK]);
+	}
+
+	@Benchmark
+	public void runtimeUtf8(org.openjdk.jmh.infra.Blackhole bh) {
+		bh.consume(RUNTIME_ENCODER.encodeToBytes(randomMessages[index++ & MASK]));
 	}
 
 	@Benchmark

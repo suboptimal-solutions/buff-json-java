@@ -47,23 +47,38 @@ public class DoubleHeavyBenchmark {
 	}
 
 	@Benchmark
-	public String buffJsonCompiled() {
+	public String compiledUtf16() {
 		return BUFF_JSON.encode(protoMessages[index++ & MASK]);
 	}
 
 	@Benchmark
-	public String buffJsonRuntime() {
+	public void compiledUtf8(org.openjdk.jmh.infra.Blackhole bh) {
+		bh.consume(BUFF_JSON.encodeToBytes(protoMessages[index++ & MASK]));
+	}
+
+	@Benchmark
+	public String runtimeUtf16() {
 		return RUNTIME_ENCODER.encode(protoMessages[index++ & MASK]);
+	}
+
+	@Benchmark
+	public void runtimeUtf8(org.openjdk.jmh.infra.Blackhole bh) {
+		bh.consume(RUNTIME_ENCODER.encodeToBytes(protoMessages[index++ & MASK]));
+	}
+
+	@Benchmark
+	public String fastjson2PojoUtf16() {
+		return JSON.toJSONString(pojoMessages[index++ & MASK]);
+	}
+
+	@Benchmark
+	public void fastjson2PojoUtf8(org.openjdk.jmh.infra.Blackhole bh) {
+		bh.consume(JSON.toJSONBytes(pojoMessages[index++ & MASK]));
 	}
 
 	@Benchmark
 	public String protoJsonFormat() throws Exception {
 		return PROTO_PRINTER.print(protoMessages[index++ & MASK]);
-	}
-
-	@Benchmark
-	public String fastjson2Pojo() {
-		return JSON.toJSONString(pojoMessages[index++ & MASK]);
 	}
 
 	/** Plain POJO with 25 double fields — fastjson2 ceiling. */
