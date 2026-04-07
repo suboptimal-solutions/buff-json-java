@@ -75,7 +75,7 @@ public final class TypedFieldAccessorFactory {
 
 	private static TypedFieldAccessor createImplicitPresenceAccessor(FieldDescriptor fd,
 			Class<? extends Message> messageClass) throws Throwable {
-		char[] nameChars = nameWithColon(fd.getJsonName());
+		FieldName nameChars = fieldName(fd.getJsonName());
 		String getterName = "get" + toCamelCase(fd.getName());
 
 		return switch (fd.getJavaType()) {
@@ -126,7 +126,7 @@ public final class TypedFieldAccessorFactory {
 
 	private static TypedFieldAccessor createPresenceAccessor(FieldDescriptor fd, Class<? extends Message> messageClass)
 			throws Throwable {
-		char[] nameChars = nameWithColon(fd.getJsonName());
+		FieldName nameChars = fieldName(fd.getJsonName());
 		String getterName = "get" + toCamelCase(fd.getName());
 		String hasName = "has" + toCamelCase(fd.getName());
 
@@ -187,7 +187,7 @@ public final class TypedFieldAccessorFactory {
 	@SuppressWarnings("unchecked")
 	private static TypedFieldAccessor createRepeatedAccessor(FieldDescriptor fd, Class<? extends Message> messageClass)
 			throws Throwable {
-		char[] nameChars = nameWithColon(fd.getJsonName());
+		FieldName nameChars = fieldName(fd.getJsonName());
 		if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
 			// Use ValueList getter (returns List<Integer>) to handle UNRECOGNIZED
 			String valueListGetterName = "get" + toCamelCase(fd.getName()) + "ValueList";
@@ -212,7 +212,7 @@ public final class TypedFieldAccessorFactory {
 	@SuppressWarnings("unchecked")
 	private static TypedFieldAccessor createMapAccessor(FieldDescriptor fd, Class<? extends Message> messageClass)
 			throws Throwable {
-		char[] nameChars = nameWithColon(fd.getJsonName());
+		FieldName nameChars = fieldName(fd.getJsonName());
 		FieldDescriptor keyFd = fd.getMessageType().findFieldByName("key");
 		FieldDescriptor valueFd = fd.getMessageType().findFieldByName("value");
 		boolean stringKey = keyFd.getJavaType() == FieldDescriptor.JavaType.STRING;
@@ -335,13 +335,20 @@ public final class TypedFieldAccessorFactory {
 		return sb.toString();
 	}
 
-	static char[] nameWithColon(String jsonName) {
+	static FieldName fieldName(String jsonName) {
 		char[] chars = new char[jsonName.length() + 3];
 		chars[0] = '"';
 		jsonName.getChars(0, jsonName.length(), chars, 1);
 		chars[jsonName.length() + 1] = '"';
 		chars[jsonName.length() + 2] = ':';
-		return chars;
+		// Proto field names are always ASCII, so UTF-8 encoding is trivial
+		byte[] utf8 = new byte[jsonName.length() + 3];
+		utf8[0] = '"';
+		for (int i = 0; i < jsonName.length(); i++)
+			utf8[i + 1] = (byte) jsonName.charAt(i);
+		utf8[jsonName.length() + 1] = '"';
+		utf8[jsonName.length() + 2] = ':';
+		return new FieldName(chars, utf8);
 	}
 
 	private static boolean isUnsigned32(FieldDescriptor fd) {

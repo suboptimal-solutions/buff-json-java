@@ -29,13 +29,13 @@ public sealed interface TypedFieldAccessor {
 
 	void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer);
 
-	record IntAccessor(ToIntFunction<Message> getter, boolean unsigned, char[] name) implements TypedFieldAccessor {
+	record IntAccessor(ToIntFunction<Message> getter, boolean unsigned, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			int v = getter.applyAsInt(msg);
 			if (v == 0)
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			if (unsigned)
 				jw.writeInt64(Integer.toUnsignedLong(v));
 			else
@@ -43,13 +43,14 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record LongAccessor(ToLongFunction<Message> getter, boolean unsigned, char[] name) implements TypedFieldAccessor {
+	record LongAccessor(ToLongFunction<Message> getter, boolean unsigned,
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			long v = getter.applyAsLong(msg);
 			if (v == 0L)
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			if (unsigned)
 				WellKnownTypes.writeUnsignedLongString(jw, v);
 			else
@@ -57,13 +58,13 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record FloatAccessor(ToDoubleFunction<Message> getter, char[] name) implements TypedFieldAccessor {
+	record FloatAccessor(ToDoubleFunction<Message> getter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			float v = (float) getter.applyAsDouble(msg);
 			if (Float.floatToRawIntBits(v) == 0)
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			if (Float.isFinite(v))
 				jw.writeFloat(v);
 			else if (Float.isNaN(v))
@@ -73,13 +74,13 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record DoubleAccessor(ToDoubleFunction<Message> getter, char[] name) implements TypedFieldAccessor {
+	record DoubleAccessor(ToDoubleFunction<Message> getter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			double v = getter.applyAsDouble(msg);
 			if (Double.doubleToRawLongBits(v) == 0)
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			if (Double.isFinite(v))
 				jw.writeDouble(v);
 			else if (Double.isNaN(v))
@@ -89,45 +90,46 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record BoolAccessor(Predicate<Message> getter, char[] name) implements TypedFieldAccessor {
+	record BoolAccessor(Predicate<Message> getter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (getter.test(msg)) {
-				jw.writeNameRaw(name);
+				name.writeTo(jw);
 				jw.writeBool(true);
 			}
 		}
 	}
 
-	record StringAccessor(Function<Message, String> getter, char[] name) implements TypedFieldAccessor {
+	record StringAccessor(Function<Message, String> getter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			String v = getter.apply(msg);
 			if (v.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.writeString(v);
 		}
 	}
 
-	record ByteStringAccessor(Function<Message, ByteString> getter, char[] name) implements TypedFieldAccessor {
+	record ByteStringAccessor(Function<Message, ByteString> getter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			ByteString v = getter.apply(msg);
 			if (v.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.writeBase64(v.toByteArray());
 		}
 	}
 
-	record EnumAccessor(ToIntFunction<Message> valueGetter, String[] names, char[] name) implements TypedFieldAccessor {
+	record EnumAccessor(ToIntFunction<Message> valueGetter, String[] names,
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			int ev = valueGetter.applyAsInt(msg);
 			if (ev == 0)
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
 			if (enumName != null)
 				jw.writeString(enumName);
@@ -139,12 +141,12 @@ public sealed interface TypedFieldAccessor {
 	// --- Presence fields (explicit has-getter) ---
 
 	record PresenceIntAccessor(ToIntFunction<Message> getter, Predicate<Message> has, boolean unsigned,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			int v = getter.applyAsInt(msg);
 			if (unsigned)
 				jw.writeInt64(Integer.toUnsignedLong(v));
@@ -154,12 +156,12 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceLongAccessor(ToLongFunction<Message> getter, Predicate<Message> has, boolean unsigned,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			long v = getter.applyAsLong(msg);
 			if (unsigned)
 				WellKnownTypes.writeUnsignedLongString(jw, v);
@@ -169,12 +171,12 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceFloatAccessor(ToDoubleFunction<Message> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			float v = (float) getter.applyAsDouble(msg);
 			if (Float.isFinite(v))
 				jw.writeFloat(v);
@@ -186,12 +188,12 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceDoubleAccessor(ToDoubleFunction<Message> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			double v = getter.applyAsDouble(msg);
 			if (Double.isFinite(v))
 				jw.writeDouble(v);
@@ -203,45 +205,45 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceBoolAccessor(Predicate<Message> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.writeBool(getter.test(msg));
 		}
 	}
 
 	record PresenceStringAccessor(Function<Message, String> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.writeString(getter.apply(msg));
 		}
 	}
 
 	record PresenceByteStringAccessor(Function<Message, ByteString> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.writeBase64(getter.apply(msg).toByteArray());
 		}
 	}
 
 	record PresenceEnumAccessor(ToIntFunction<Message> valueGetter, Predicate<Message> has, String[] names,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			int ev = valueGetter.applyAsInt(msg);
 			String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
 			if (enumName != null)
@@ -252,12 +254,12 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceMessageAccessor(Function<Message, Message> getter, Predicate<Message> has,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			Message nested = getter.apply(msg);
 			if (WellKnownTypes.isWellKnownType(nested.getDescriptorForType()))
 				WellKnownTypes.write(jw, nested, writer);
@@ -269,26 +271,26 @@ public sealed interface TypedFieldAccessor {
 	// --- Repeated fields ---
 
 	record RepeatedAccessor(Function<Message, List<?>> listGetter, FieldDescriptor fd,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<?> values = listGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			io.suboptimal.buffjson.internal.FieldWriter.writeRepeated(jw, fd, values, writer);
 		}
 	}
 
 	@SuppressWarnings("unchecked")
 	record RepeatedIntAccessor(Function<Message, List<?>> listGetter, boolean unsigned,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Integer> values = (List<Integer>) (List<?>) listGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startArray();
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
@@ -304,13 +306,13 @@ public sealed interface TypedFieldAccessor {
 
 	@SuppressWarnings("unchecked")
 	record RepeatedLongAccessor(Function<Message, List<?>> listGetter, boolean unsigned,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Long> values = (List<Long>) (List<?>) listGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startArray();
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
@@ -325,13 +327,13 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	@SuppressWarnings("unchecked")
-	record RepeatedStringAccessor(Function<Message, List<?>> listGetter, char[] name) implements TypedFieldAccessor {
+	record RepeatedStringAccessor(Function<Message, List<?>> listGetter, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<String> values = (List<String>) (List<?>) listGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startArray();
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
@@ -343,13 +345,14 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	@SuppressWarnings("unchecked")
-	record RepeatedMessageAccessor(Function<Message, List<?>> listGetter, char[] name) implements TypedFieldAccessor {
+	record RepeatedMessageAccessor(Function<Message, List<?>> listGetter,
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Message> values = (List<Message>) (List<?>) listGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startArray();
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
@@ -365,14 +368,14 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record RepeatedEnumAccessor(Function<Message, List<?>> valueListGetter, String[] names,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		@SuppressWarnings("unchecked")
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Integer> values = (List<Integer>) (List<?>) valueListGetter.apply(msg);
 			if (values.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startArray();
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
@@ -391,25 +394,25 @@ public sealed interface TypedFieldAccessor {
 	// --- Map fields ---
 
 	record MapAccessor(Function<Message, List<?>> entriesGetter, FieldDescriptor mapValueDescriptor,
-			char[] name) implements TypedFieldAccessor {
+			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<?> entries = entriesGetter.apply(msg);
 			if (entries.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			io.suboptimal.buffjson.internal.FieldWriter.writeMap(jw, mapValueDescriptor, entries, writer);
 		}
 	}
 
 	record TypedMapAccessor(Function<Message, java.util.Map<?, ?>> mapGetter, FieldDescriptor valueFd,
-			boolean stringKey, char[] name) implements TypedFieldAccessor {
+			boolean stringKey, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			java.util.Map<?, ?> map = mapGetter.apply(msg);
 			if (map.isEmpty())
 				return;
-			jw.writeNameRaw(name);
+			name.writeTo(jw);
 			jw.startObject();
 			for (var entry : map.entrySet()) {
 				if (stringKey)

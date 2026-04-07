@@ -60,18 +60,20 @@ final class EncoderGenerator {
 		sb.append("    public static final ").append(encoderSimpleName).append(" INSTANCE = new ")
 				.append(encoderSimpleName).append("();\n\n");
 
-		// Name char[] constants for writeNameRaw (works with both UTF-8 and UTF-16
-		// writers)
+		// Pre-encoded field name constants for both UTF-16 (char[]) and UTF-8
+		// (byte[]) JSONWriter paths
 		for (FieldDescriptor fd : msgDesc.getFields()) {
 			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
 				continue;
 			String jsonName = fd.getJsonName();
 			sb.append("    private static final char[] NAME_").append(constantName(fd));
 			sb.append(" = nameChars(\"").append(jsonName).append("\");\n");
+			sb.append("    private static final byte[] NAME_").append(constantName(fd));
+			sb.append("_UTF8 = nameBytes(\"").append(jsonName).append("\");\n");
 		}
 		sb.append("\n");
 
-		// nameChars helper
+		// nameChars helper (UTF-16)
 		sb.append("    private static char[] nameChars(String name) {\n");
 		sb.append("        char[] chars = new char[name.length() + 3];\n");
 		sb.append("        chars[0] = '\"';\n");
@@ -79,6 +81,16 @@ final class EncoderGenerator {
 		sb.append("        chars[name.length() + 1] = '\"';\n");
 		sb.append("        chars[name.length() + 2] = ':';\n");
 		sb.append("        return chars;\n");
+		sb.append("    }\n\n");
+
+		// nameBytes helper (UTF-8 — proto field names are always ASCII)
+		sb.append("    private static byte[] nameBytes(String name) {\n");
+		sb.append("        byte[] bytes = new byte[name.length() + 3];\n");
+		sb.append("        bytes[0] = '\"';\n");
+		sb.append("        for (int i = 0; i < name.length(); i++) bytes[i + 1] = (byte) name.charAt(i);\n");
+		sb.append("        bytes[name.length() + 1] = '\"';\n");
+		sb.append("        bytes[name.length() + 2] = ':';\n");
+		sb.append("        return bytes;\n");
 		sb.append("    }\n\n");
 
 		// Pre-collect enum types used by int-valued fields (implicit presence,
@@ -116,6 +128,7 @@ final class EncoderGenerator {
 		sb.append("    @Override\n");
 		sb.append("    public void writeFields(JSONWriter jsonWriter, ").append(messageClassName)
 				.append(" message, io.suboptimal.buffjson.internal.ProtobufMessageWriter writer) {\n");
+		sb.append("        boolean utf8 = jsonWriter.isUTF8();\n");
 
 		// Collect fields that are part of oneofs (we'll handle them via the oneof
 		// switch)
@@ -162,7 +175,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            int v = ").append(getter).append(";\n");
 				sb.append("            if (v != 0) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				writeIntValue(sb, fd, "v");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -171,7 +184,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            long v = ").append(getter).append(";\n");
 				sb.append("            if (v != 0L) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				writeLongValue(sb, fd, "v");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -180,7 +193,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            float v = ").append(getter).append(";\n");
 				sb.append("            if (Float.floatToRawIntBits(v) != 0) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				writeFloatValue(sb, "v");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -189,14 +202,14 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            double v = ").append(getter).append(";\n");
 				sb.append("            if (Double.doubleToRawLongBits(v) != 0) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				writeDoubleValue(sb, "v");
 				sb.append("            }\n");
 				sb.append("        }\n");
 			}
 			case BOOLEAN -> {
 				sb.append("        if (").append(getter).append(") {\n");
-				sb.append("            jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "            ");
 				sb.append("            jsonWriter.writeBool(true);\n");
 				sb.append("        }\n");
 			}
@@ -204,7 +217,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            String v = ").append(getter).append(";\n");
 				sb.append("            if (!v.isEmpty()) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				sb.append("                jsonWriter.writeString(v);\n");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -213,7 +226,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            com.google.protobuf.ByteString v = ").append(getter).append(";\n");
 				sb.append("            if (!v.isEmpty()) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				sb.append("                jsonWriter.writeBase64(v.toByteArray());\n");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -222,7 +235,7 @@ final class EncoderGenerator {
 				sb.append("        {\n");
 				sb.append("            int ev = message.").append(getterName(fd)).append("Value();\n");
 				sb.append("            if (ev != 0) {\n");
-				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+				emitWriteName(sb, constName, "                ");
 				writeEnumValue(sb, enumArrayConstant(fd), "ev");
 				sb.append("            }\n");
 				sb.append("        }\n");
@@ -243,7 +256,7 @@ final class EncoderGenerator {
 		String constName = "NAME_" + constantName(fd);
 
 		sb.append("        if (").append(hasGetter).append(") {\n");
-		sb.append("            jsonWriter.writeNameRaw(").append(constName).append(");\n");
+		emitWriteName(sb, constName, "            ");
 
 		switch (fd.getJavaType()) {
 			case INT -> writeIntValue(sb, fd, getter);
@@ -286,7 +299,7 @@ final class EncoderGenerator {
 		sb.append("            java.util.List<").append(elementType).append("> values = ").append(listGetter)
 				.append(";\n");
 		sb.append("            if (!values.isEmpty()) {\n");
-		sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+		emitWriteName(sb, constName, "                ");
 		sb.append("                jsonWriter.startArray();\n");
 		sb.append("                for (int i = 0; i < values.size(); i++) {\n");
 		sb.append("                    if (i > 0) jsonWriter.writeComma();\n");
@@ -339,7 +352,7 @@ final class EncoderGenerator {
 		sb.append("            java.util.Map<").append(keyType).append(", ").append(valueType).append("> map = ")
 				.append(mapGetter).append(";\n");
 		sb.append("            if (!map.isEmpty()) {\n");
-		sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+		emitWriteName(sb, constName, "                ");
 		sb.append("                jsonWriter.startObject();\n");
 		sb.append("                for (var entry : map.entrySet()) {\n");
 		if (keyFd.getJavaType() == FieldDescriptor.JavaType.STRING) {
@@ -387,7 +400,7 @@ final class EncoderGenerator {
 			String getter = "message." + getterName(fd) + "()";
 
 			sb.append("            case ").append(enumValue).append(" -> {\n");
-			sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
+			emitWriteName(sb, constName, "                ");
 
 			switch (fd.getJavaType()) {
 				case INT -> writeIntValue(sb, fd, getter);
@@ -509,6 +522,15 @@ final class EncoderGenerator {
 
 	private static String hasName(FieldDescriptor fd) {
 		return "has" + BuffJsonProtocPlugin.toCamelCase(fd.getName());
+	}
+
+	/**
+	 * Emits code to write a pre-encoded field name, dispatching between UTF-8
+	 * byte[] and UTF-16 char[] based on the {@code utf8} local variable.
+	 */
+	private static void emitWriteName(StringBuilder sb, String constName, String indent) {
+		sb.append(indent).append("if (utf8) jsonWriter.writeNameRaw(").append(constName).append("_UTF8);\n");
+		sb.append(indent).append("else jsonWriter.writeNameRaw(").append(constName).append(");\n");
 	}
 
 	private static String constantName(FieldDescriptor fd) {
