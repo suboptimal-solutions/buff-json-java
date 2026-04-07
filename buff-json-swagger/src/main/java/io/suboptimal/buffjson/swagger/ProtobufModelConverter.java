@@ -78,7 +78,7 @@ public class ProtobufModelConverter implements ModelConverter {
 			Object value = entry.getValue();
 
 			switch (key) {
-				case "type" -> schema.setType((String) value);
+				case "type" -> schema.addType((String) value);
 				case "format" -> schema.setFormat((String) value);
 				case "title" -> schema.setTitle((String) value);
 				case "description" -> schema.setDescription((String) value);

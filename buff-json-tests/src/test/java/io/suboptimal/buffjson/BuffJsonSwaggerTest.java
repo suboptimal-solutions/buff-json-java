@@ -45,25 +45,25 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestAllScalars.class);
 		Schema schema = resolved.schema;
 
-		assertEquals("object", schema.getType());
+		assertType("object", schema);
 		assertEquals("TestAllScalars", schema.getTitle());
 
 		Map<String, Schema> props = properties(schema);
 		assertNotNull(props);
 
 		// int32 → integer
-		assertEquals("integer", props.get("optionalInt32").getType());
+		assertType("integer", props.get("optionalInt32"));
 
 		// uint32 → integer with minimum 0
-		assertEquals("integer", props.get("optionalUint32").getType());
+		assertType("integer", props.get("optionalUint32"));
 		assertEquals(0, props.get("optionalUint32").getMinimum().intValue());
 
 		// int64 → string with format int64
-		assertEquals("string", props.get("optionalInt64").getType());
+		assertType("string", props.get("optionalInt64"));
 		assertEquals("int64", props.get("optionalInt64").getFormat());
 
 		// uint64 → string with format uint64
-		assertEquals("string", props.get("optionalUint64").getType());
+		assertType("string", props.get("optionalUint64"));
 		assertEquals("uint64", props.get("optionalUint64").getFormat());
 
 		// float/double → oneOf [number, string]
@@ -71,13 +71,13 @@ class BuffJsonSwaggerTest {
 		assertFloatSchema(props.get("optionalDouble"));
 
 		// bool → boolean
-		assertEquals("boolean", props.get("optionalBool").getType());
+		assertType("boolean", props.get("optionalBool"));
 
 		// string → string
-		assertEquals("string", props.get("optionalString").getType());
+		assertType("string", props.get("optionalString"));
 
 		// bytes → string with contentEncoding base64
-		assertEquals("string", props.get("optionalBytes").getType());
+		assertType("string", props.get("optionalBytes"));
 		assertEquals("base64", props.get("optionalBytes").getContentEncoding());
 	}
 
@@ -86,18 +86,24 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestNesting.class);
 		Map<String, Schema> props = properties(resolved.schema);
 
+		// nested message → $ref to components
 		Schema nested = props.get("nested");
-		assertEquals("object", nested.getType());
-		assertEquals("NestedMessage", nested.getTitle());
+		assertNotNull(nested.get$ref(), "nested should be a $ref");
 
-		Map<String, Schema> nestedProps = properties(nested);
-		assertEquals("integer", nestedProps.get("value").getType());
-		assertEquals("string", nestedProps.get("name").getType());
+		Schema nestedDef = resolved.referencedSchemas.get("io.suboptimal.buffjson.proto.NestedMessage");
+		assertNotNull(nestedDef, "NestedMessage should be in referencedSchemas");
+		assertType("object", nestedDef);
+		assertEquals("NestedMessage", nestedDef.getTitle());
 
-		// repeated nested → array
+		Map<String, Schema> nestedProps = properties(nestedDef);
+		assertType("integer", nestedProps.get("value"));
+		assertType("string", nestedProps.get("name"));
+
+		// repeated nested → array with $ref items
 		Schema repeatedNested = props.get("repeatedNested");
-		assertEquals("array", repeatedNested.getType());
+		assertType("array", repeatedNested);
 		assertNotNull(repeatedNested.getItems());
+		assertNotNull(repeatedNested.getItems().get$ref(), "repeated items should be a $ref");
 	}
 
 	@Test
@@ -113,16 +119,21 @@ class BuffJsonSwaggerTest {
 		assertTrue(resolved.referencedSchemas.containsKey(fullName));
 
 		Schema def = resolved.referencedSchemas.get(fullName);
-		assertEquals("object", def.getType());
+		assertType("object", def);
 		assertEquals("TestRecursive", def.getTitle());
 	}
 
 	@Test
 	void enumFields() {
 		ResolvedSchema resolved = resolve(TestNesting.class);
-		Schema enumSchema = properties(resolved.schema).get("enumValue");
 
-		assertEquals("string", enumSchema.getType());
+		// enum → $ref to components
+		Schema enumRef = properties(resolved.schema).get("enumValue");
+		assertNotNull(enumRef.get$ref(), "enum should be a $ref");
+
+		Schema enumSchema = resolved.referencedSchemas.get("io.suboptimal.buffjson.proto.TestEnum");
+		assertNotNull(enumSchema, "TestEnum should be in referencedSchemas");
+		assertType("string", enumSchema);
 		assertEquals("TestEnum", enumSchema.getTitle());
 
 		List enumValues = enumSchema.getEnum();
@@ -138,15 +149,15 @@ class BuffJsonSwaggerTest {
 
 		// map<string, string> → object with additionalProperties: string
 		Schema stringToString = props.get("stringToString");
-		assertEquals("object", stringToString.getType());
+		assertType("object", stringToString);
 		Schema addlProps = (Schema) stringToString.getAdditionalProperties();
-		assertEquals("string", addlProps.getType());
+		assertType("string", addlProps);
 
 		// map<string, int32> → object with additionalProperties: integer
 		Schema stringToInt32 = props.get("stringToInt32");
-		assertEquals("object", stringToInt32.getType());
+		assertType("object", stringToInt32);
 		Schema intProps = (Schema) stringToInt32.getAdditionalProperties();
-		assertEquals("integer", intProps.getType());
+		assertType("integer", intProps);
 	}
 
 	@Test
@@ -156,13 +167,13 @@ class BuffJsonSwaggerTest {
 
 		// repeated int32 → array of integer
 		Schema repeatedInt = props.get("repeatedInt32");
-		assertEquals("array", repeatedInt.getType());
-		assertEquals("integer", repeatedInt.getItems().getType());
+		assertType("array", repeatedInt);
+		assertType("integer", repeatedInt.getItems());
 
 		// repeated string → array of string
 		Schema repeatedStr = props.get("repeatedString");
-		assertEquals("array", repeatedStr.getType());
-		assertEquals("string", repeatedStr.getItems().getType());
+		assertType("array", repeatedStr);
+		assertType("string", repeatedStr.getItems());
 	}
 
 	@Test
@@ -170,7 +181,7 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestTimestamp.class);
 		Schema ts = properties(resolved.schema).get("value");
 
-		assertEquals("string", ts.getType());
+		assertType("string", ts);
 		assertEquals("date-time", ts.getFormat());
 		assertNotNull(ts.getDescription());
 	}
@@ -180,7 +191,7 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestDuration.class);
 		Schema dur = properties(resolved.schema).get("value");
 
-		assertEquals("string", dur.getType());
+		assertType("string", dur);
 		assertNotNull(dur.getDescription());
 	}
 
@@ -189,7 +200,7 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestStruct.class);
 		Schema struct = properties(resolved.schema).get("structValue");
 
-		assertEquals("object", struct.getType());
+		assertType("object", struct);
 		assertNotNull(struct.getDescription());
 	}
 
@@ -198,7 +209,7 @@ class BuffJsonSwaggerTest {
 		ResolvedSchema resolved = resolve(TestAny.class);
 		Schema any = properties(resolved.schema).get("value");
 
-		assertEquals("object", any.getType());
+		assertType("object", any);
 		assertNotNull(any.getRequired());
 		assertTrue(any.getRequired().contains("@type"));
 	}
@@ -296,8 +307,8 @@ class BuffJsonSwaggerTest {
 		List<Schema> oneOf = schema.getOneOf();
 		assertNotNull(oneOf, "float/double should use oneOf");
 		assertEquals(2, oneOf.size());
-		assertEquals("number", oneOf.get(0).getType());
-		assertEquals("string", oneOf.get(1).getType());
+		assertType("number", oneOf.get(0));
+		assertType("string", oneOf.get(1));
 		assertNotNull(oneOf.get(1).getEnum());
 		assertTrue(oneOf.get(1).getEnum().contains("NaN"));
 	}
@@ -307,6 +318,12 @@ class BuffJsonSwaggerTest {
 	private static final JsonSchemaFactory SCHEMA_FACTORY = JsonSchemaFactory
 			.getInstance(SpecVersion.VersionFlag.V202012);
 	private static final SchemaValidatorsConfig VALIDATORS_CONFIG = SchemaValidatorsConfig.builder().build();
+
+	private static void assertType(String expected, Schema schema) {
+		assertNotNull(schema.getTypes(), "types must not be null");
+		assertTrue(schema.getTypes().contains(expected),
+				"expected type '" + expected + "' but got " + schema.getTypes());
+	}
 
 	private void assertJsonValidatesAgainstSchema(Message message) {
 		String json = ENCODER.encode(message);
