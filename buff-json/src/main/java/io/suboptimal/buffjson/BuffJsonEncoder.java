@@ -29,12 +29,14 @@ public final class BuffJsonEncoder {
 
 	private TypeRegistry typeRegistry;
 	private boolean useGeneratedEncoders = true;
+	private volatile ProtobufMessageWriter cachedWriter;
 
 	BuffJsonEncoder() {
 	}
 
 	public BuffJsonEncoder setTypeRegistry(TypeRegistry registry) {
 		this.typeRegistry = registry;
+		this.cachedWriter = null;
 		return this;
 	}
 
@@ -44,6 +46,7 @@ public final class BuffJsonEncoder {
 
 	public BuffJsonEncoder setGeneratedEncoders(boolean enabled) {
 		this.useGeneratedEncoders = enabled;
+		this.cachedWriter = null;
 		return this;
 	}
 
@@ -99,7 +102,12 @@ public final class BuffJsonEncoder {
 	}
 
 	private ProtobufMessageWriter messageWriter() {
-		return new ProtobufMessageWriter(typeRegistry, useGeneratedEncoders);
+		var w = cachedWriter;
+		if (w == null) {
+			w = new ProtobufMessageWriter(typeRegistry, useGeneratedEncoders);
+			cachedWriter = w;
+		}
+		return w;
 	}
 
 	private static Message toMessage(MessageOrBuilder message) {

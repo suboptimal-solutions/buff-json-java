@@ -120,12 +120,12 @@ public final class FieldWriter {
 	 * JSON spec. Also used by {@link WellKnownTypes} for FloatValue wrapper.
 	 */
 	static void writeFloatValue(JSONWriter jsonWriter, float value) {
-		if (Float.isNaN(value)) {
-			jsonWriter.writeString("NaN");
-		} else if (Float.isInfinite(value)) {
-			jsonWriter.writeString(value > 0 ? "Infinity" : "-Infinity");
-		} else {
+		if (Float.isFinite(value)) {
 			jsonWriter.writeFloat(value);
+		} else if (Float.isNaN(value)) {
+			jsonWriter.writeString("NaN");
+		} else {
+			jsonWriter.writeString(value > 0 ? "Infinity" : "-Infinity");
 		}
 	}
 
@@ -134,12 +134,12 @@ public final class FieldWriter {
 	 * JSON spec. Also used by {@link WellKnownTypes} for DoubleValue wrapper.
 	 */
 	static void writeDoubleValue(JSONWriter jsonWriter, double value) {
-		if (Double.isNaN(value)) {
-			jsonWriter.writeString("NaN");
-		} else if (Double.isInfinite(value)) {
-			jsonWriter.writeString(value > 0 ? "Infinity" : "-Infinity");
-		} else {
+		if (Double.isFinite(value)) {
 			jsonWriter.writeDouble(value);
+		} else if (Double.isNaN(value)) {
+			jsonWriter.writeString("NaN");
+		} else {
+			jsonWriter.writeString(value > 0 ? "Infinity" : "-Infinity");
 		}
 	}
 

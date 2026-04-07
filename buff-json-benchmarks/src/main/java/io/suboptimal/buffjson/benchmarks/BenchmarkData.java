@@ -177,6 +177,26 @@ public final class BenchmarkData {
 		return result;
 	}
 
+	public static BenchDoubleHeavy[] createRandomBenchDoubleHeavy(Random rng, int n) {
+		BenchDoubleHeavy[] result = new BenchDoubleHeavy[n];
+		for (int i = 0; i < n; i++) {
+			result[i] = BenchDoubleHeavy.newBuilder().setLat(37.0 + rng.nextDouble()).setLng(-122.0 + rng.nextDouble())
+					.setAltitude(rng.nextDouble() * 5000).setSpeed(rng.nextDouble() * 200)
+					.setHeading(rng.nextDouble() * 360).setAccuracy(rng.nextDouble() * 50)
+					.setTemperature(-40 + rng.nextDouble() * 100).setPressure(900 + rng.nextDouble() * 200)
+					.setHumidity(rng.nextDouble() * 100).setWindSpeed(rng.nextDouble() * 150)
+					.setWindDirection(rng.nextDouble() * 360).setVisibility(rng.nextDouble() * 50000)
+					.setUvIndex(rng.nextDouble() * 15).setDewPoint(-20 + rng.nextDouble() * 60)
+					.setFeelsLike(-40 + rng.nextDouble() * 100).setPrecipitation(rng.nextDouble() * 500)
+					.setCloudCover(rng.nextDouble() * 100).setSolarRadiation(rng.nextDouble() * 1500)
+					.setSoilTemperature(-10 + rng.nextDouble() * 60).setSoilMoisture(rng.nextDouble() * 100)
+					.setVoltage(rng.nextDouble() * 480).setCurrent(rng.nextDouble() * 1000)
+					.setPower(rng.nextDouble() * 100000).setFrequency(49.5 + rng.nextDouble())
+					.setSignalStrength(-120 + rng.nextDouble() * 80).build();
+		}
+		return result;
+	}
+
 	public static BenchDeepNesting[] createRandomBenchDeepNesting(Random rng, int n) {
 		BenchDeepNesting[] result = new BenchDeepNesting[n];
 		for (int i = 0; i < n; i++) {

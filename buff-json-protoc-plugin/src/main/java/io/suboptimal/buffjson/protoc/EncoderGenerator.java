@@ -214,8 +214,7 @@ final class EncoderGenerator {
 				sb.append("            com.google.protobuf.ByteString v = ").append(getter).append(";\n");
 				sb.append("            if (!v.isEmpty()) {\n");
 				sb.append("                jsonWriter.writeNameRaw(").append(constName).append(");\n");
-				sb.append(
-						"                jsonWriter.writeString(java.util.Base64.getEncoder().encodeToString(v.toByteArray()));\n");
+				sb.append("                jsonWriter.writeBase64(v.toByteArray());\n");
 				sb.append("            }\n");
 				sb.append("        }\n");
 			}
@@ -254,8 +253,7 @@ final class EncoderGenerator {
 			case BOOLEAN -> sb.append("            jsonWriter.writeBool(").append(getter).append(");\n");
 			case STRING -> sb.append("            jsonWriter.writeString(").append(getter).append(");\n");
 			case BYTE_STRING ->
-				sb.append("            jsonWriter.writeString(java.util.Base64.getEncoder().encodeToString(")
-						.append(getter).append(".toByteArray()));\n");
+				sb.append("            jsonWriter.writeBase64(").append(getter).append(".toByteArray());\n");
 			case ENUM -> {
 				sb.append("            {\n");
 				sb.append("                int ev = message.").append(getterName(fd)).append("Value();\n");
@@ -300,8 +298,7 @@ final class EncoderGenerator {
 			case DOUBLE -> writeDoubleValue(sb, "values.get(i)");
 			case BOOLEAN -> sb.append("                    jsonWriter.writeBool(values.get(i));\n");
 			case STRING -> sb.append("                    jsonWriter.writeString(values.get(i));\n");
-			case BYTE_STRING -> sb.append(
-					"                    jsonWriter.writeString(java.util.Base64.getEncoder().encodeToString(values.get(i).toByteArray()));\n");
+			case BYTE_STRING -> sb.append("                    jsonWriter.writeBase64(values.get(i).toByteArray());\n");
 			case ENUM -> {
 				// Use raw int values to handle UNRECOGNIZED enum constants
 				// (which throw from getNumber()/getValueDescriptor())
@@ -360,8 +357,8 @@ final class EncoderGenerator {
 			case DOUBLE -> writeDoubleValue(sb, "entry.getValue()");
 			case BOOLEAN -> sb.append("                    jsonWriter.writeBool(entry.getValue());\n");
 			case STRING -> sb.append("                    jsonWriter.writeString(entry.getValue());\n");
-			case BYTE_STRING -> sb.append(
-					"                    jsonWriter.writeString(java.util.Base64.getEncoder().encodeToString(entry.getValue().toByteArray()));\n");
+			case BYTE_STRING ->
+				sb.append("                    jsonWriter.writeBase64(entry.getValue().toByteArray());\n");
 			case ENUM -> {
 				// Map enum values: entry.getValue() is an Integer (raw int) since
 				// we use the ValueMap getter. Look up in pre-cached name array.
@@ -400,8 +397,7 @@ final class EncoderGenerator {
 				case BOOLEAN -> sb.append("                jsonWriter.writeBool(").append(getter).append(");\n");
 				case STRING -> sb.append("                jsonWriter.writeString(").append(getter).append(");\n");
 				case BYTE_STRING ->
-					sb.append("                jsonWriter.writeString(java.util.Base64.getEncoder().encodeToString(")
-							.append(getter).append(".toByteArray()));\n");
+					sb.append("                jsonWriter.writeBase64(").append(getter).append(".toByteArray());\n");
 				case ENUM -> {
 					sb.append("                {\n");
 					sb.append("                    int ev = message.").append(getterName(fd)).append("Value();\n");
@@ -433,29 +429,31 @@ final class EncoderGenerator {
 	private static void writeLongValue(StringBuilder sb, FieldDescriptor fd, String expr) {
 		var type = fd.getType();
 		if (type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64) {
-			sb.append("                jsonWriter.writeString(Long.toUnsignedString(").append(expr).append("));\n");
+			// Zero-alloc: writes quoted unsigned number directly to buffer
+			sb.append(
+					"                io.suboptimal.buffjson.internal.WellKnownTypes.writeUnsignedLongString(jsonWriter, ")
+					.append(expr).append(");\n");
 		} else {
-			sb.append("                jsonWriter.writeString(Long.toString(").append(expr).append("));\n");
+			// Zero-alloc: writeString(long) writes quoted number directly to buffer
+			sb.append("                jsonWriter.writeString(").append(expr).append(");\n");
 		}
 	}
 
 	private static void writeFloatValue(StringBuilder sb, String expr) {
 		sb.append("                {\n");
 		sb.append("                    float fv = ").append(expr).append(";\n");
-		sb.append("                    if (Float.isNaN(fv)) jsonWriter.writeString(\"NaN\");\n");
-		sb.append(
-				"                    else if (Float.isInfinite(fv)) jsonWriter.writeString(fv > 0 ? \"Infinity\" : \"-Infinity\");\n");
-		sb.append("                    else jsonWriter.writeFloat(fv);\n");
+		sb.append("                    if (Float.isFinite(fv)) jsonWriter.writeFloat(fv);\n");
+		sb.append("                    else if (Float.isNaN(fv)) jsonWriter.writeString(\"NaN\");\n");
+		sb.append("                    else jsonWriter.writeString(fv > 0 ? \"Infinity\" : \"-Infinity\");\n");
 		sb.append("                }\n");
 	}
 
 	private static void writeDoubleValue(StringBuilder sb, String expr) {
 		sb.append("                {\n");
 		sb.append("                    double dv = ").append(expr).append(";\n");
-		sb.append("                    if (Double.isNaN(dv)) jsonWriter.writeString(\"NaN\");\n");
-		sb.append(
-				"                    else if (Double.isInfinite(dv)) jsonWriter.writeString(dv > 0 ? \"Infinity\" : \"-Infinity\");\n");
-		sb.append("                    else jsonWriter.writeDouble(dv);\n");
+		sb.append("                    if (Double.isFinite(dv)) jsonWriter.writeDouble(dv);\n");
+		sb.append("                    else if (Double.isNaN(dv)) jsonWriter.writeString(\"NaN\");\n");
+		sb.append("                    else jsonWriter.writeString(dv > 0 ? \"Infinity\" : \"-Infinity\");\n");
 		sb.append("                }\n");
 	}
 

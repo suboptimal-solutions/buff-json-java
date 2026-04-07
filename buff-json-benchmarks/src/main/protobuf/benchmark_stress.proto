@@ -54,6 +54,35 @@ message BenchDeepNesting {
     BenchDeepNesting child = 3;
 }
 
+// Double-heavy message (20-30 fields)
+message BenchDoubleHeavy {
+    double lat = 1;
+    double lng = 2;
+    double altitude = 3;
+    double speed = 4;
+    double heading = 5;
+    double accuracy = 6;
+    double temperature = 7;
+    double pressure = 8;
+    double humidity = 9;
+    double wind_speed = 10;
+    double wind_direction = 11;
+    double visibility = 12;
+    double uv_index = 13;
+    double dew_point = 14;
+    double feels_like = 15;
+    double precipitation = 16;
+    double cloud_cover = 17;
+    double solar_radiation = 18;
+    double soil_temperature = 19;
+    double soil_moisture = 20;
+    double voltage = 21;
+    double current = 22;
+    double power = 23;
+    double frequency = 24;
+    double signal_strength = 25;
+}
+
 // String/bytes stress
 message BenchStringHeavy {
     string short_ascii = 1;
