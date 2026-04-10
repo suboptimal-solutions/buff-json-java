@@ -6,10 +6,10 @@ import java.util.List;
 import com.alibaba.fastjson2.JSONWriter;
 import com.alibaba.fastjson2.writer.ObjectWriter;
 import com.google.protobuf.Descriptors.FieldDescriptor;
-import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
 
+import io.suboptimal.buffjson.BuffJsonCodecHolder;
 import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;
 /**
  * Core serialization logic for protobuf messages. Implements fastjson2's
@@ -72,15 +72,14 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 
 	/**
 	 * Writes all non-default fields of a message without the surrounding braces.
-	 * Uses a generated encoder if one is registered for this message type.
+	 * Uses a generated encoder if the message implements
+	 * {@link BuffJsonCodecHolder}.
 	 */
+	@SuppressWarnings("unchecked")
 	void writeFields(JSONWriter jsonWriter, Message message) {
-		if (useGenerated && GeneratedEncoderRegistry.hasEncoders() && !(message instanceof DynamicMessage)) {
-			BuffJsonGeneratedEncoder<Message> encoder = GeneratedEncoderRegistry.get(message.getDescriptorForType());
-			if (encoder != null) {
-				encoder.writeFields(jsonWriter, message, this);
-				return;
-			}
+		if (useGenerated && message instanceof BuffJsonCodecHolder holder) {
+			((BuffJsonGeneratedEncoder<Message>) holder.buffJsonEncoder()).writeFields(jsonWriter, message, this);
+			return;
 		}
 
 		var schema = MessageSchema.forDescriptor(message.getDescriptorForType());

@@ -33,11 +33,6 @@ final class DecoderGenerator {
 				.append(decoderSimpleName).append("();\n\n");
 
 		sb.append("    @Override\n");
-		sb.append("    public String descriptorFullName() {\n");
-		sb.append("        return \"").append(msgDesc.getFullName()).append("\";\n");
-		sb.append("    }\n\n");
-
-		sb.append("    @Override\n");
 		sb.append("    public ").append(messageClassName).append(
 				" readMessage(JSONReader reader, io.suboptimal.buffjson.internal.ProtobufMessageReader msgReader) {\n");
 		sb.append("        ").append(messageClassName).append(".Builder builder = ").append(messageClassName)
@@ -290,9 +285,10 @@ final class DecoderGenerator {
 				sb.append(indent).append(prefix).append("(").append(decoderClass)
 						.append(".INSTANCE.readMessage(reader, msgReader)").append(closeSuffix).append(");\n");
 			} else {
-				sb.append(indent).append(prefix).append("(msgReader.readMessage(reader, ")
-						.append(protoToJavaClass.get(fullName)).append(".getDescriptor())").append(closeSuffix)
-						.append(");\n");
+				String msgJavaClass = protoToJavaClass.get(fullName);
+				sb.append(indent).append(prefix).append("(msgReader.readMessage(reader, ").append(msgJavaClass)
+						.append(".getDescriptor(), ").append(msgJavaClass).append(".getDefaultInstance())")
+						.append(closeSuffix).append(");\n");
 			}
 		}
 	}

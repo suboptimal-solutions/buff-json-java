@@ -21,7 +21,7 @@ import com.google.protobuf.Descriptors.OneofDescriptor;
  * encoders
  * <li><b>Direct nested encoder calls</b> — nested messages call
  * {@code FooJsonEncoder.INSTANCE.writeFields(jw, msg, writer)} directly,
- * bypassing {@code GeneratedEncoderRegistry} lookup and instanceof checks
+ * bypassing registry lookup and instanceof checks
  * <li><b>Inline WKT Timestamp/Duration</b> — calls
  * {@code WellKnownTypes.writeTimestampDirect()} with typed accessors, bypassing
  * descriptor string switch, field cache lookup, and reflection+boxing
@@ -105,12 +105,6 @@ final class EncoderGenerator {
 		}
 		if (!enumArrays.isEmpty())
 			sb.append("\n");
-
-		// descriptorFullName()
-		sb.append("    @Override\n");
-		sb.append("    public String descriptorFullName() {\n");
-		sb.append("        return \"").append(msgDesc.getFullName()).append("\";\n");
-		sb.append("    }\n\n");
 
 		// writeFields()
 		sb.append("    @Override\n");

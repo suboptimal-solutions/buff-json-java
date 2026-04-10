@@ -11,6 +11,7 @@ import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
 
+import io.suboptimal.buffjson.BuffJsonCodecHolder;
 import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;
 /**
  * Core deserialization logic for protobuf messages. Implements fastjson2's
@@ -65,18 +66,22 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 		Message defaultInstance = getDefaultInstance(clazz);
 		Descriptor descriptor = defaultInstance.getDescriptorForType();
 
-		return readMessage(reader, descriptor);
+		return readMessage(reader, descriptor, defaultInstance);
 	}
 
 	/**
-	 * Reads a message using the generated path if available, otherwise the runtime
-	 * reflection-based path. Falls back to DynamicMessage for the runtime path.
-	 * Used for nested messages where the concrete class is not known.
+	 * Reads a message using the generated path if available via the descriptor
+	 * cache, otherwise the runtime reflection-based path. Falls back to
+	 * DynamicMessage for the runtime path. Used for nested messages where the
+	 * concrete class is not known.
 	 */
+	@SuppressWarnings("unchecked")
 	public Message readMessage(JSONReader reader, Descriptor descriptor) {
-		Message generated = tryGeneratedDecode(reader, descriptor);
-		if (generated != null) {
-			return generated;
+		if (useGenerated) {
+			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(descriptor);
+			if (decoder != null) {
+				return decoder.readMessage(reader, this);
+			}
 		}
 
 		Message defaultInstance = DynamicMessage.getDefaultInstance(descriptor);
@@ -88,23 +93,15 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 * reflection-based path with the provided typed default instance. Used for
 	 * top-level decoding where the concrete Message class is known.
 	 */
+	@SuppressWarnings("unchecked")
 	public Message readMessage(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
-		Message generated = tryGeneratedDecode(reader, descriptor);
-		if (generated != null) {
-			return generated;
+		if (useGenerated && defaultInstance instanceof BuffJsonCodecHolder holder) {
+			BuffJsonGeneratedDecoder<Message> decoder = (BuffJsonGeneratedDecoder<Message>) holder.buffJsonDecoder();
+			GeneratedDecoderRegistry.put(descriptor, decoder);
+			return decoder.readMessage(reader, this);
 		}
 
 		return readMessageRuntime(reader, descriptor, defaultInstance);
-	}
-
-	private Message tryGeneratedDecode(JSONReader reader, Descriptor descriptor) {
-		if (useGenerated && GeneratedDecoderRegistry.hasDecoders()) {
-			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(descriptor);
-			if (decoder != null) {
-				return decoder.readMessage(reader, this);
-			}
-		}
-		return null;
 	}
 
 	/**

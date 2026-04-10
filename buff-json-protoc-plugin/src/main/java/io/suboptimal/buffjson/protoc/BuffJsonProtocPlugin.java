@@ -16,15 +16,16 @@ import com.google.protobuf.compiler.PluginProtos.CodeGeneratorRequest;
 import com.google.protobuf.compiler.PluginProtos.CodeGeneratorResponse;
 
 /**
- * Protoc plugin that generates optimized JSON encoder classes for protobuf
- * messages. Generated encoders use typed accessors (e.g., {@code getId()})
- * instead of reflection-style {@code getField()}, eliminating boxing and
- * runtime type dispatch.
+ * Protoc plugin that generates optimized JSON encoder and decoder classes for
+ * protobuf messages. Generated encoders use typed accessors (e.g.,
+ * {@code getId()}) instead of reflection-style {@code getField()}, eliminating
+ * boxing and runtime type dispatch.
  *
  * <p>
  * Invoked by protoc via stdin/stdout protocol. Generates one
- * {@code *JsonEncoder} class per message type, plus a {@code META-INF/services}
- * file for ServiceLoader discovery.
+ * {@code *JsonEncoder} and one {@code *JsonDecoder} class per message type,
+ * plus insertion points that inject {@code BuffJsonCodecHolder} into the
+ * generated protobuf message classes.
  */
 public final class BuffJsonProtocPlugin {
 
@@ -83,8 +84,6 @@ public final class BuffJsonProtocPlugin {
 			}
 		}
 
-		List<String> encoderClassNames = new ArrayList<>();
-		List<String> decoderClassNames = new ArrayList<>();
 		List<String> commentClassNames = new ArrayList<>();
 
 		for (FileDescriptor fileDesc : fileDescriptors.values()) {
@@ -95,9 +94,11 @@ public final class BuffJsonProtocPlugin {
 
 			for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
 				generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
-						encoderClassNames, "JsonEncoder", EncoderGenerator::generate);
+						"JsonEncoder", EncoderGenerator::generate);
 				generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToDecoderClass,
-						decoderClassNames, "JsonDecoder", DecoderGenerator::generate);
+						"JsonDecoder", DecoderGenerator::generate);
+				generateInsertionPoints(response, msgDesc, fileDesc, javaPackage, protoToEncoderClass,
+						protoToDecoderClass);
 			}
 
 			// Generate comment provider per proto file
@@ -113,16 +114,6 @@ public final class BuffJsonProtocPlugin {
 			}
 		}
 
-		if (!encoderClassNames.isEmpty()) {
-			response.addFile(CodeGeneratorResponse.File.newBuilder()
-					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedEncoder")
-					.setContent(String.join("\n", encoderClassNames) + "\n").build());
-		}
-		if (!decoderClassNames.isEmpty()) {
-			response.addFile(CodeGeneratorResponse.File.newBuilder()
-					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedDecoder")
-					.setContent(String.join("\n", decoderClassNames) + "\n").build());
-		}
 		if (!commentClassNames.isEmpty()) {
 			response.addFile(CodeGeneratorResponse.File.newBuilder()
 					.setName("META-INF/services/io.suboptimal.buffjson.BuffJsonGeneratedComments")
@@ -150,7 +141,7 @@ public final class BuffJsonProtocPlugin {
 
 	private static void generateCodegenClasses(CodeGeneratorResponse.Builder response, Descriptor msgDesc,
 			String javaPackage, Map<String, String> protoToJavaClass, Map<String, String> protoToCodegenClass,
-			List<String> classNames, String suffix, CodeGenerator generator) {
+			String suffix, CodeGenerator generator) {
 
 		if (msgDesc.getOptions().getMapEntry())
 			return;
@@ -159,18 +150,88 @@ public final class BuffJsonProtocPlugin {
 
 		String messageClassName = protoToJavaClass.get(msgDesc.getFullName());
 		String simpleName = flatName(msgDesc) + suffix;
-		String fullName = javaPackage + "." + simpleName;
 
 		String source = generator.generate(msgDesc, javaPackage, simpleName, messageClassName, protoToJavaClass,
 				protoToCodegenClass);
 
 		String filePath = javaPackage.replace('.', '/') + "/" + simpleName + ".java";
 		response.addFile(CodeGeneratorResponse.File.newBuilder().setName(filePath).setContent(source).build());
-		classNames.add(fullName);
 
 		for (Descriptor nested : msgDesc.getNestedTypes()) {
-			generateCodegenClasses(response, nested, javaPackage, protoToJavaClass, protoToCodegenClass, classNames,
-					suffix, generator);
+			generateCodegenClasses(response, nested, javaPackage, protoToJavaClass, protoToCodegenClass, suffix,
+					generator);
+		}
+	}
+
+	/**
+	 * Generates protoc insertion point files for the given message descriptor and
+	 * its nested types. For each message, two insertion points are emitted:
+	 * <ul>
+	 * <li>{@code message_implements} — adds {@code BuffJsonCodecHolder} to the
+	 * message's implements clause
+	 * <li>{@code class_scope} — adds {@code buffJsonEncoder()} and
+	 * {@code buffJsonDecoder()} method implementations
+	 * </ul>
+	 */
+	private static void generateInsertionPoints(CodeGeneratorResponse.Builder response, Descriptor msgDesc,
+			FileDescriptor fileDesc, String javaPackage, Map<String, String> protoToEncoderClass,
+			Map<String, String> protoToDecoderClass) {
+
+		if (msgDesc.getOptions().getMapEntry())
+			return;
+		if (WELL_KNOWN_TYPES.contains(msgDesc.getFullName()))
+			return;
+
+		String encoderClass = protoToEncoderClass.get(msgDesc.getFullName());
+		String decoderClass = protoToDecoderClass.get(msgDesc.getFullName());
+		if (encoderClass == null && decoderClass == null)
+			return;
+
+		String protoFilePath = insertionPointFilePath(msgDesc, fileDesc, javaPackage);
+		String fullName = msgDesc.getFullName();
+
+		// message_implements insertion point — add BuffJsonCodecHolder interface
+		response.addFile(CodeGeneratorResponse.File.newBuilder().setName(protoFilePath)
+				.setInsertionPoint("message_implements:" + fullName)
+				.setContent("io.suboptimal.buffjson.BuffJsonCodecHolder,\n").build());
+
+		// class_scope insertion point — add method implementations
+		StringBuilder body = new StringBuilder();
+		if (encoderClass != null) {
+			body.append(
+					"@Override public io.suboptimal.buffjson.BuffJsonGeneratedEncoder<?> buffJsonEncoder() { return ")
+					.append(encoderClass).append(".INSTANCE; }\n");
+		}
+		if (decoderClass != null) {
+			body.append(
+					"@Override public io.suboptimal.buffjson.BuffJsonGeneratedDecoder<?> buffJsonDecoder() { return ")
+					.append(decoderClass).append(".INSTANCE; }\n");
+		}
+		response.addFile(CodeGeneratorResponse.File.newBuilder().setName(protoFilePath)
+				.setInsertionPoint("class_scope:" + fullName).setContent(body.toString()).build());
+
+		for (Descriptor nested : msgDesc.getNestedTypes()) {
+			generateInsertionPoints(response, nested, fileDesc, javaPackage, protoToEncoderClass, protoToDecoderClass);
+		}
+	}
+
+	/**
+	 * Computes the Java source file path for a message's insertion point. For
+	 * {@code java_multiple_files = true}, this is the top-level message's own file.
+	 * Otherwise, it's the outer class file.
+	 */
+	private static String insertionPointFilePath(Descriptor msgDesc, FileDescriptor fileDesc, String javaPackage) {
+		boolean multipleFiles = fileDesc.getOptions().getJavaMultipleFiles();
+		String packagePath = javaPackage.replace('.', '/');
+		if (multipleFiles) {
+			// Navigate to the top-level message (for nested types)
+			Descriptor topLevel = msgDesc;
+			while (topLevel.getContainingType() != null) {
+				topLevel = topLevel.getContainingType();
+			}
+			return packagePath + "/" + topLevel.getName() + ".java";
+		} else {
+			return packagePath + "/" + getOuterClassName(fileDesc) + ".java";
 		}
 	}
 
