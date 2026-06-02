@@ -77,6 +77,7 @@ For each non-WKT, non-map-entry message type:
 - **Cross-file nested encoder calls** — `protoToEncoderClass` only contains messages from `filesToGenerate`. If a nested message is defined in a non-generated file, the fallback to `writer.writeMessage(jsonWriter, nested)` is used (which still finds the encoder at runtime via `instanceof BuffJsonCodecHolder`)
 - **Insertion point file paths** — for `java_multiple_files = true`, message insertion points target `package/MessageName.java`; for `false`, they target `package/OuterClassName.java`. The `outer_class_scope` insertion point always targets the outer class file
 - **Block comments** (`/** */`) — the `*` prefix on each line is stripped by `CommentGenerator.stripLines()`, producing clean multiline text
+- **Generated decoders route fallible parses through `FieldReader`** — `DecoderGenerator` emits `FieldReader.readBytes(reader)` for bytes, `FieldReader.enumNumber(reader, EnumClass.getDescriptor(), name)` for enum names, and `FieldReader.parseIntKey`/`parseUnsignedIntKey`/`parseLongKey`/`parseUnsignedLongKey(reader, keyStr)` for numeric map keys — never inline `BASE64.decode`/`Enum.valueOf`/`Long.parseLong`. This gives generated code the same `JSONException`-for-bad-input contract as the runtime path (see buff-json `Error Contract`); the helpers are `public` because generated code lives in the user's package
 
 ## Build
 

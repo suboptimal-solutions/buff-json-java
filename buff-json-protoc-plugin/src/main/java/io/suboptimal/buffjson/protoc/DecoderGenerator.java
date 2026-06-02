@@ -157,8 +157,9 @@ final class DecoderGenerator {
 			String valuePutter = putter + "Value(" + keyExpr + ", ";
 			String enumClass = protoToJavaClass.get(valueFd.getEnumType().getFullName());
 			sb.append(indent).append("        if (reader.isString()) {\n");
-			sb.append(indent).append("            ").append(valuePutter).append(enumClass)
-					.append(".valueOf(reader.readString()).getNumber());\n");
+			sb.append(indent).append("            ").append(valuePutter)
+					.append("io.suboptimal.buffjson.internal.FieldReader.enumNumber(reader, ").append(enumClass)
+					.append(".getDescriptor(), reader.readString()));\n");
 			sb.append(indent).append("        } else {\n");
 			sb.append(indent).append("            ").append(valuePutter).append("reader.readInt32Value());\n");
 			sb.append(indent).append("        }\n");
@@ -223,17 +224,18 @@ final class DecoderGenerator {
 				sb.append(indent).append(prefix).append("(reader.readBoolValue()").append(closeSuffix).append(");\n");
 			case STRING ->
 				sb.append(indent).append(prefix).append("(reader.readString()").append(closeSuffix).append(");\n");
-			case BYTE_STRING -> sb.append(indent).append(prefix).append(
-					"(com.google.protobuf.ByteString.copyFrom(io.suboptimal.buffjson.internal.FieldReader.BASE64.decode(reader.readString()))")
-					.append(closeSuffix).append(");\n");
+			case BYTE_STRING -> sb.append(indent).append(prefix)
+					.append("(io.suboptimal.buffjson.internal.FieldReader.readBytes(reader)").append(closeSuffix)
+					.append(");\n");
 			case ENUM -> {
 				// Enum fields use the Value variant: setFoo -> setFooValue, addFoo ->
 				// addFooValue
 				String valueName = prefix + "Value";
 				String enumClass = protoToJavaClass.get(fd.getEnumType().getFullName());
 				sb.append(indent).append("if (reader.isString()) {\n");
-				sb.append(indent).append("    ").append(valueName).append("(").append(enumClass)
-						.append(".valueOf(reader.readString()).getNumber()").append(closeSuffix).append(");\n");
+				sb.append(indent).append("    ").append(valueName)
+						.append("(io.suboptimal.buffjson.internal.FieldReader.enumNumber(reader, ").append(enumClass)
+						.append(".getDescriptor(), reader.readString())").append(closeSuffix).append(");\n");
 				sb.append(indent).append("} else {\n");
 				sb.append(indent).append("    ").append(valueName).append("(reader.readInt32Value()")
 						.append(closeSuffix).append(");\n");
@@ -301,16 +303,16 @@ final class DecoderGenerator {
 			case INT -> {
 				var type = keyFd.getType();
 				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32)
-					yield "(int) Long.parseLong(keyStr)";
-				yield "Integer.parseInt(keyStr)";
+					yield "io.suboptimal.buffjson.internal.FieldReader.parseUnsignedIntKey(reader, keyStr)";
+				yield "io.suboptimal.buffjson.internal.FieldReader.parseIntKey(reader, keyStr)";
 			}
 			case LONG -> {
 				var type = keyFd.getType();
 				if (type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64)
-					yield "Long.parseUnsignedLong(keyStr)";
-				yield "Long.parseLong(keyStr)";
+					yield "io.suboptimal.buffjson.internal.FieldReader.parseUnsignedLongKey(reader, keyStr)";
+				yield "io.suboptimal.buffjson.internal.FieldReader.parseLongKey(reader, keyStr)";
 			}
-			case BOOLEAN -> "Boolean.parseBoolean(keyStr)";
+			case BOOLEAN -> "io.suboptimal.buffjson.internal.FieldReader.parseBoolKey(reader, keyStr)";
 			default -> throw new IllegalArgumentException("Unsupported map key type: " + keyFd.getJavaType());
 		};
 	}

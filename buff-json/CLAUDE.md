@@ -115,6 +115,28 @@ JSON.parseObject(json, MyMessage.class);  // uses the reader's settings
 - **Duration nanos**: Format to 3, 6, or 9 digits (not arbitrary precision)
 - **Any**: Requires TypeRegistry. Regular messages: `{"@type":..., ...fields}`. WKTs: `{"@type":..., "value":...}`
 
+## Decoder Input Hardening (untrusted JSON)
+
+The decoder consumes untrusted JSON, so a few defenses are built into the read path. All are zero-cost on the success path.
+
+- **Recursion depth cap (`WellKnownTypes.MAX_RECURSION_DEPTH = 100`)**: The `Struct`/`Value`/`ListValue` reader (`readStruct`/`readListValue`/`readJsonValueImpl`) threads an `int depth` and throws a clean `JSONException` past 100 levels instead of `StackOverflowError`. 100 matches protobuf's own limit (`CodedInputStream.DEFAULT_RECURSION_LIMIT` and `JsonFormat.Parser`'s default). Public single-arg entry points (`readStruct(reader)`, etc.) delegate to private `(reader, depth)` overloads, so generated decoders keep calling the unchanged signatures — no codegen ABI change. Note: this caps the universal Struct/Value/ListValue vector; arbitrary message nesting (self-referential message types) is not capped because that would require threading depth through the `BuffJsonGeneratedDecoder` ABI.
+- **Any `@type`-first fast path** (`WellKnownTypes.readAny`): the canonical proto3 form lists `@type` first, so the descriptor is resolved before any content and the remaining fields are decoded straight off the live reader via `ProtobufMessageReader.readRemainingMessageFields` (regular messages → `DynamicMessage`) or direct WKT read — no `LinkedHashMap` buffering, no `JSON.toJSONString` + re-parse. The buffer-and-reparse slow path is retained only for the rare case where `@type` arrives after content.
+
+## Error Contract: `JSONException` for bad input, JDK exceptions for config errors
+
+Errors are split by *who caused them*, so a config bug never masquerades as "bad JSON":
+
+- **User-facing — bad untrusted JSON content → `com.alibaba.fastjson2.JSONException`** (fastjson2's native type), with position context attached via `JSONReader.info(msg)` (appends offset/line/column — note fastjson2 also appends the input document to the message). Callers catch one type for any malformed payload, on **all three paths** (codegen, typed, reflection). Covers: malformed int64/uint64/float/double, timestamp, duration, base64, enum names, numeric map keys, JSON nesting depth, and a malformed/unregistered `@type` the client submitted in an `Any`.
+- **Internal — server config / programmer / unreachable invariants → JDK `IllegalStateException`/`IllegalArgumentException`** (unchanged from fastjson-agnostic behavior). These are *not* driven by untrusted input, so they stay distinguishable. Covers: missing `TypeRegistry` on the encoder or decoder, encode-side `Any` type-resolution/content-parse failures (the server is serializing its own data), a bad target `Class` passed to `decode`, and the unreachable "Unknown well-known type" / "Unsupported map key type" guard arms.
+
+Implementation:
+
+- **Where conversion happens** — value parsing lives in `FieldReader` helpers (`readSignedLong`, `readUnsignedLong`, `readFloatValue`, `readDoubleValue`, `readBytes`, `enumNumber`, `parseIntKey`/`parseUnsignedIntKey`/`parseLongKey`/`parseUnsignedLongKey`) and `WellKnownTypes` (`readTimestamp`, `readDuration`, `readAny`/`resolveAnyType`). Each wraps the JDK exception (`NumberFormatException`, `DateTimeParseException`, base64/enum `IllegalArgumentException`) and rethrows `JSONException`, preserving the original as the cause.
+- **Codegen routes through the same helpers** — `DecoderGenerator` emits calls to `FieldReader.readBytes`/`enumNumber`/`parse*Key` (not inline `BASE64.decode`/`Enum.valueOf`/`Long.parseLong`), so generated decoders get the identical contract without duplicating try/catch. These helpers are `public` precisely because generated code lives in the user's package.
+- **`try/catch` is free on the success path** (HotSpot exception tables), so this is zero-cost normalization.
+- **Internal helpers stay JDK-typed** — `parseTimestamp`/`parseDuration` throw `DateTimeParseException`/`IllegalArgumentException` but are always wrapped by their `read*` callers, so the type never escapes (`readDuration`'s `catch (IllegalArgumentException)` depends on this).
+- **`Any` registry split** — in `resolveAnyType`, a `null` registry → `IllegalStateException` (decoder was never configured); a well-formed-but-unregistered or malformed `@type` → `JSONException` + offset (the client sent it).
+
 ## Dependencies
 
 - `com.google.protobuf:protobuf-java` — Message, Descriptor, TypeRegistry, DynamicMessage
