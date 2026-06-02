@@ -116,9 +116,32 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 */
 	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
 		Message.Builder builder = defaultInstance.newBuilderForType();
+		reader.nextIfObjectStart();
+		readFieldsInto(reader, builder, descriptor);
+		return builder.build();
+	}
+
+	/**
+	 * Reads a {@code DynamicMessage} of {@code descriptor} from the reader's
+	 * <em>current</em> position — the object-start (and possibly some leading
+	 * fields) have already been consumed by the caller. Used by the Any
+	 * {@code @type}-first fast path to decode content fields directly off the live
+	 * reader without buffering and re-parsing.
+	 */
+	public Message readRemainingMessageFields(JSONReader reader, Descriptor descriptor) {
+		Message.Builder builder = DynamicMessage.newBuilder(descriptor);
+		readFieldsInto(reader, builder, descriptor);
+		return builder.build();
+	}
+
+	/**
+	 * Reads JSON object fields into {@code builder} until object-end. Assumes the
+	 * reader is positioned just after the opening brace (at the first field name or
+	 * the closing brace).
+	 */
+	private void readFieldsInto(JSONReader reader, Message.Builder builder, Descriptor descriptor) {
 		MessageSchema schema = MessageSchema.forDescriptor(descriptor);
 
-		reader.nextIfObjectStart();
 		while (!reader.nextIfObjectEnd()) {
 			String fieldName = reader.readFieldName();
 			if (fieldName == null) {
@@ -151,8 +174,6 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 				builder.setField(fd, value);
 			}
 		}
-
-		return builder.build();
 	}
 
 	@SuppressWarnings("unchecked")

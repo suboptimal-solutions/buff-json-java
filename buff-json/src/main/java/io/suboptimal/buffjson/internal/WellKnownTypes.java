@@ -1,6 +1,7 @@
 package io.suboptimal.buffjson.internal;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONReader;
 import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.*;
@@ -118,6 +120,8 @@ public final class WellKnownTypes {
 
 		TypeRegistry registry = writer.typeRegistry();
 		if (registry == null) {
+			// Server-side configuration error (encoder has no registry) — not driven by
+			// untrusted input, so an IllegalStateException, not a JSONException.
 			throw new IllegalStateException("Cannot serialize google.protobuf.Any without a TypeRegistry. "
 					+ "Use BuffJson.encoder().setTypeRegistry(registry).encode(message).");
 		}
@@ -511,6 +515,22 @@ public final class WellKnownTypes {
 	// =========================================================================
 
 	/**
+	 * Maximum nesting depth for the recursive {@code Struct}/{@code Value}/
+	 * {@code ListValue} reader. Matches protobuf's own recursion limit
+	 * ({@code CodedInputStream.DEFAULT_RECURSION_LIMIT} and
+	 * {@code JsonFormat.Parser}'s default, both 100), so deeply nested untrusted
+	 * JSON fails with a clean {@link JSONException} instead of a
+	 * {@code StackOverflowError}.
+	 */
+	private static final int MAX_RECURSION_DEPTH = 100;
+
+	private static void checkDepth(JSONReader reader, int depth) {
+		if (depth > MAX_RECURSION_DEPTH) {
+			throw new JSONException(reader.info("JSON nesting depth exceeds " + MAX_RECURSION_DEPTH));
+		}
+	}
+
+	/**
 	 * Reads a well-known type from JSON. Dispatches by descriptor full name.
 	 */
 	public static Message readWkt(JSONReader reader, Descriptor descriptor, ProtobufMessageReader msgReader) {
@@ -530,8 +550,7 @@ public final class WellKnownTypes {
 			case "google.protobuf.UInt32Value" -> UInt32Value.of((int) reader.readInt64Value());
 			case "google.protobuf.BoolValue" -> BoolValue.of(reader.readBoolValue());
 			case "google.protobuf.StringValue" -> StringValue.of(reader.readString());
-			case "google.protobuf.BytesValue" ->
-				BytesValue.of(ByteString.copyFrom(FieldReader.BASE64.decode(reader.readString())));
+			case "google.protobuf.BytesValue" -> BytesValue.of(FieldReader.readBytes(reader));
 			default -> throw new IllegalArgumentException("Unknown well-known type: " + descriptor.getFullName());
 		};
 	}
@@ -539,7 +558,12 @@ public final class WellKnownTypes {
 	/** Reads an RFC 3339 timestamp string and returns a Timestamp message. */
 	public static Timestamp readTimestamp(JSONReader reader) {
 		String rfc3339 = reader.readString();
-		return parseTimestamp(rfc3339);
+		try {
+			return parseTimestamp(rfc3339);
+		} catch (DateTimeParseException e) {
+			// Normalize to JSONException and attach position context via reader.info(...).
+			throw new JSONException(reader.info("Invalid RFC 3339 timestamp for google.protobuf.Timestamp"), e);
+		}
 	}
 
 	/**
@@ -547,7 +571,13 @@ public final class WellKnownTypes {
 	 */
 	public static Duration readDuration(JSONReader reader) {
 		String s = reader.readString();
-		return parseDuration(s);
+		try {
+			return parseDuration(s);
+		} catch (IllegalArgumentException e) {
+			// IllegalArgumentException covers NumberFormatException (parse) and the
+			// explicit "missing 's' suffix" check in parseDuration.
+			throw new JSONException(reader.info("Invalid duration for google.protobuf.Duration"), e);
+		}
 	}
 
 	static Timestamp parseTimestamp(String rfc3339) {
@@ -600,6 +630,11 @@ public final class WellKnownTypes {
 
 	/** Reads a native JSON object as a protobuf Struct. */
 	public static Struct readStruct(JSONReader reader) {
+		return readStruct(reader, 1);
+	}
+
+	private static Struct readStruct(JSONReader reader, int depth) {
+		checkDepth(reader, depth);
 		Struct.Builder builder = Struct.newBuilder();
 		reader.nextIfObjectStart();
 		while (!reader.nextIfObjectEnd()) {
@@ -607,7 +642,7 @@ public final class WellKnownTypes {
 			if (key == null) {
 				break;
 			}
-			Value value = readJsonValueImpl(reader);
+			Value value = readJsonValueImpl(reader, depth);
 			builder.putFields(key, value);
 		}
 		return builder.build();
@@ -615,10 +650,10 @@ public final class WellKnownTypes {
 
 	/** Reads a native JSON value as a protobuf Value (dispatch on token type). */
 	public static Value readJsonValue(JSONReader reader) {
-		return readJsonValueImpl(reader);
+		return readJsonValueImpl(reader, 1);
 	}
 
-	private static Value readJsonValueImpl(JSONReader reader) {
+	private static Value readJsonValueImpl(JSONReader reader, int depth) {
 		if (reader.nextIfNull()) {
 			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
 		}
@@ -630,10 +665,10 @@ public final class WellKnownTypes {
 			return Value.newBuilder().setBoolValue(reader.readBoolValue()).build();
 		}
 		if (c == '{') {
-			return Value.newBuilder().setStructValue(readStruct(reader)).build();
+			return Value.newBuilder().setStructValue(readStruct(reader, depth + 1)).build();
 		}
 		if (c == '[') {
-			return Value.newBuilder().setListValue(readListValue(reader)).build();
+			return Value.newBuilder().setListValue(readListValue(reader, depth + 1)).build();
 		}
 		// Must be a number
 		return Value.newBuilder().setNumberValue(reader.readDoubleValue()).build();
@@ -641,59 +676,83 @@ public final class WellKnownTypes {
 
 	/** Reads a native JSON array as a protobuf ListValue. */
 	public static ListValue readListValue(JSONReader reader) {
+		return readListValue(reader, 1);
+	}
+
+	private static ListValue readListValue(JSONReader reader, int depth) {
+		checkDepth(reader, depth);
 		ListValue.Builder builder = ListValue.newBuilder();
 		reader.nextIfArrayStart();
 		while (!reader.nextIfArrayEnd()) {
-			builder.addValues(readJsonValueImpl(reader));
+			builder.addValues(readJsonValueImpl(reader, depth));
 		}
 		return builder.build();
 	}
 
 	private static Any readAny(JSONReader reader, ProtobufMessageReader msgReader) {
-		// Read the entire JSON object into a map to extract @type first
 		reader.nextIfObjectStart();
 
+		if (reader.nextIfObjectEnd()) {
+			return Any.getDefaultInstance();
+		}
+
+		String firstKey = reader.readFieldName();
+
+		// Fast path: the canonical proto3 form lists "@type" first. When it does, we
+		// can resolve the content descriptor before reading any content and decode
+		// the remaining fields straight off the live reader — no buffering into a
+		// Map, no JSON.toJSONString + re-parse (which roughly doubles the work).
+		if ("@type".equals(firstKey)) {
+			String typeUrl = reader.readString();
+			if (typeUrl == null || typeUrl.isEmpty()) {
+				skipToObjectEnd(reader);
+				return Any.getDefaultInstance();
+			}
+			Descriptor type = resolveAnyType(reader, typeUrl, msgReader);
+			Message content = isWellKnownType(type)
+					? readPackedWktValue(reader, type, msgReader)
+					: msgReader.readRemainingMessageFields(reader, type);
+			return Any.pack(content);
+		}
+
+		// Slow path: "@type" appears after content (or is absent), so we cannot know
+		// the descriptor up front. Buffer every field, then resolve and re-parse.
 		String typeUrl = null;
 		Map<String, Object> allFields = new LinkedHashMap<>();
-		while (!reader.nextIfObjectEnd()) {
-			String key = reader.readFieldName();
-			if (key == null) {
-				break;
-			}
+		String key = firstKey;
+		while (key != null) {
 			if ("@type".equals(key)) {
 				typeUrl = reader.readString();
 			} else {
 				allFields.put(key, reader.readAny());
 			}
+			if (reader.nextIfObjectEnd()) {
+				break;
+			}
+			key = reader.readFieldName();
 		}
 
 		if (typeUrl == null || typeUrl.isEmpty()) {
 			return Any.getDefaultInstance();
 		}
 
-		TypeRegistry registry = msgReader.typeRegistry();
-		if (registry == null) {
-			throw new IllegalStateException("Cannot deserialize google.protobuf.Any without a TypeRegistry. "
-					+ "Use BuffJson.decoder().setTypeRegistry(registry).decode(json, clazz).");
-		}
-
-		Descriptor type;
-		try {
-			type = registry.getDescriptorForTypeUrl(typeUrl);
-		} catch (InvalidProtocolBufferException e) {
-			throw new IllegalStateException("Invalid type URL in Any: " + typeUrl, e);
-		}
-		if (type == null) {
-			throw new IllegalStateException("Cannot find type for url: " + typeUrl);
-		}
+		Descriptor type = resolveAnyType(reader, typeUrl, msgReader);
 
 		Message contentMessage;
 		if (isWellKnownType(type)) {
 			// WKT packed in Any: {"@type": "...", "value": <wkt-json>}
 			Object valueObj = allFields.get("value");
-			String valueJson = com.alibaba.fastjson2.JSON.toJSONString(valueObj);
-			try (JSONReader valueReader = JSONReader.of(valueJson)) {
-				contentMessage = readWkt(valueReader, type, msgReader);
+			if (valueObj == null) {
+				// Missing or explicit-null "value": match the fast path / top-level field
+				// rule instead of stringifying null and NPE-ing inside the WKT reader.
+				contentMessage = allFields.containsKey("value")
+						? nullPackedWktValue(type)
+						: DynamicMessage.getDefaultInstance(type);
+			} else {
+				String valueJson = com.alibaba.fastjson2.JSON.toJSONString(valueObj);
+				try (JSONReader valueReader = JSONReader.of(valueJson)) {
+					contentMessage = readWkt(valueReader, type, msgReader);
+				}
 			}
 		} else {
 			// Regular message: {"@type": "...", ...fields...}
@@ -704,6 +763,86 @@ public final class WellKnownTypes {
 		}
 
 		return Any.pack(contentMessage);
+	}
+
+	/**
+	 * Resolves an Any {@code @type} URL (from untrusted JSON) to its message
+	 * descriptor via the registry.
+	 *
+	 * <p>
+	 * A missing {@link TypeRegistry} is a <em>server-side configuration</em> error
+	 * (the decoder was never given a registry) and throws
+	 * {@link IllegalStateException}. A malformed or unregistered {@code @type} is a
+	 * <em>client input</em> error and throws {@link JSONException} with the JSON
+	 * offset.
+	 */
+	private static Descriptor resolveAnyType(JSONReader reader, String typeUrl, ProtobufMessageReader msgReader) {
+		TypeRegistry registry = msgReader.typeRegistry();
+		if (registry == null) {
+			throw new IllegalStateException("Cannot deserialize google.protobuf.Any without a TypeRegistry. "
+					+ "Use BuffJson.decoder().setTypeRegistry(registry).decode(json, clazz).");
+		}
+		Descriptor type;
+		try {
+			type = registry.getDescriptorForTypeUrl(typeUrl);
+		} catch (InvalidProtocolBufferException e) {
+			throw new JSONException(reader.info("Invalid type URL in google.protobuf.Any"), e);
+		}
+		if (type == null) {
+			throw new JSONException(reader.info("Cannot find type for url: " + typeUrl));
+		}
+		return type;
+	}
+
+	/**
+	 * Fast-path read of a well-known type packed in an Any whose {@code @type} was
+	 * already consumed. Reads the remaining fields off the live reader, parsing the
+	 * {@code "value"} field directly. A JSON {@code null} value is handled like the
+	 * top-level field path ({@code google.protobuf.Value} → {@code NullValue},
+	 * other WKTs → default instance) rather than fed into the WKT reader (which
+	 * would {@code NullPointerException}). Returns the type's default instance if
+	 * no {@code "value"} field is present.
+	 */
+	private static Message readPackedWktValue(JSONReader reader, Descriptor type, ProtobufMessageReader msgReader) {
+		Message content = null;
+		while (!reader.nextIfObjectEnd()) {
+			String name = reader.readFieldName();
+			if (name == null) {
+				break;
+			}
+			if ("value".equals(name)) {
+				content = reader.nextIfNull() ? nullPackedWktValue(type) : readWkt(reader, type, msgReader);
+			} else {
+				reader.skipValue();
+			}
+		}
+		return content != null ? content : DynamicMessage.getDefaultInstance(type);
+	}
+
+	/**
+	 * Content message for a packed WKT whose {@code "value"} is an explicit JSON
+	 * {@code null}. Mirrors the top-level field rule: {@code google.protobuf.Value}
+	 * becomes {@code NullValue}; every other WKT becomes its default instance.
+	 */
+	private static Message nullPackedWktValue(Descriptor type) {
+		if ("google.protobuf.Value".equals(type.getFullName())) {
+			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+		}
+		return DynamicMessage.getDefaultInstance(type);
+	}
+
+	/**
+	 * Skips any remaining entries of the current JSON object and consumes its
+	 * closing brace. fastjson2 has no single "skip rest of object" call, so this
+	 * uses its {@code skipName()}/{@code skipValue()} pair — the same idiom
+	 * fastjson2 applies internally — where {@code skipName()} advances past the key
+	 * and colon without materializing the (discarded) key String.
+	 */
+	private static void skipToObjectEnd(JSONReader reader) {
+		while (!reader.nextIfObjectEnd()) {
+			reader.skipName();
+			reader.skipValue();
+		}
 	}
 
 	/**
