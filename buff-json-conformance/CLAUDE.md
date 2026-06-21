@@ -65,11 +65,11 @@ CONF_TEST_PATH=run/conformance_test_runner BUFFJSON_PATH=reflection ./buff-json-
 
 `BUFFJSON_PATH` (default `codegen`) selects which buff-json path the testee exercises:
 
-| value        | encode path                | decode path |
-|--------------|----------------------------|-------------|
-| `codegen`    | generated `*JsonEncoder`   | generated `*JsonDecoder` |
-| `runtime`    | typed-accessor             | reflection  |
-| `reflection` | pure reflection            | reflection  |
+|    value     |       encode path        |       decode path        |
+|--------------|--------------------------|--------------------------|
+| `codegen`    | generated `*JsonEncoder` | generated `*JsonDecoder` |
+| `runtime`    | typed-accessor           | reflection               |
+| `reflection` | pure reflection          | reflection               |
 
 `ENFORCE_CONFORMANCE=1` makes `test-conformance.sh` propagate the runner's exit code (fail on
 unexpected results); the default `0` reports results without failing.
