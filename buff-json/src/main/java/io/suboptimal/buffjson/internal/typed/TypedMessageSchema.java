@@ -24,16 +24,14 @@ import io.suboptimal.buffjson.internal.ProtobufMessageWriter;
  */
 public final class TypedMessageSchema {
 
-	private static final TypedMessageSchema FAILED = new TypedMessageSchema(null, null);
+	private static final TypedMessageSchema FAILED = new TypedMessageSchema(null);
 
 	private static final ConcurrentHashMap<Descriptor, TypedMessageSchema> CACHE = new ConcurrentHashMap<>();
 
 	private final TypedFieldAccessor[] fields;
-	private final OneofGroup[] oneofs;
 
-	private TypedMessageSchema(TypedFieldAccessor[] fields, OneofGroup[] oneofs) {
+	private TypedMessageSchema(TypedFieldAccessor[] fields) {
 		this.fields = fields;
-		this.oneofs = oneofs;
 	}
 
 	/**
@@ -59,22 +57,31 @@ public final class TypedMessageSchema {
 		for (var accessor : fields) {
 			accessor.write(jw, msg, writer);
 		}
-		for (var oneof : oneofs) {
-			oneof.write(jw, msg, writer);
-		}
 	}
 
 	private static TypedMessageSchema build(Descriptor descriptor, Class<? extends Message> messageClass) {
-		var oneofFields = new HashSet<FieldDescriptor>();
-		for (OneofDescriptor oneof : descriptor.getRealOneofs()) {
-			oneofFields.addAll(oneof.getFields());
-		}
-
+		// Build a single accessor list in descriptor (field-number) order. A oneof's
+		// accessor is inserted at the position of its first-declared member, so output
+		// field order matches JsonFormat (rather than bunching oneofs at the end).
 		var fieldList = new ArrayList<TypedFieldAccessor>();
+		var emittedOneofs = new HashSet<OneofDescriptor>();
 		for (FieldDescriptor fd : descriptor.getFields()) {
-			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
+			OneofDescriptor oneof = fd.getRealContainingOneof();
+			if (oneof != null) {
+				if (emittedOneofs.add(oneof)) {
+					var accessors = TypedFieldAccessorFactory.createOneofAccessors(oneof, messageClass);
+					if (accessors == null)
+						return FAILED;
+					var members = oneof.getFields();
+					int[] fieldNumbers = new int[members.size()];
+					for (int i = 0; i < members.size(); i++) {
+						fieldNumbers[i] = members.get(i).getNumber();
+					}
+					fieldList.add(new TypedFieldAccessor.OneofAccessor(oneof, fieldNumbers, accessors));
+				}
 				continue;
-			if (oneofFields.contains(fd))
+			}
+			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
 				continue;
 			var accessor = TypedFieldAccessorFactory.create(fd, messageClass);
 			if (accessor == null)
@@ -82,34 +89,6 @@ public final class TypedMessageSchema {
 			fieldList.add(accessor);
 		}
 
-		var oneofList = new ArrayList<OneofGroup>();
-		for (OneofDescriptor oneof : descriptor.getRealOneofs()) {
-			var accessors = TypedFieldAccessorFactory.createOneofAccessors(oneof, messageClass);
-			if (accessors == null)
-				return FAILED;
-			int[] fieldNumbers = new int[oneof.getFields().size()];
-			for (int i = 0; i < oneof.getFields().size(); i++) {
-				fieldNumbers[i] = oneof.getFields().get(i).getNumber();
-			}
-			oneofList.add(new OneofGroup(oneof, fieldNumbers, accessors));
-		}
-
-		return new TypedMessageSchema(fieldList.toArray(TypedFieldAccessor[]::new),
-				oneofList.toArray(OneofGroup[]::new));
-	}
-
-	private record OneofGroup(OneofDescriptor oneof, int[] fieldNumbers, TypedFieldAccessor[] accessors) {
-		void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
-			FieldDescriptor setField = msg.getOneofFieldDescriptor(oneof);
-			if (setField == null)
-				return;
-			int number = setField.getNumber();
-			for (int i = 0; i < fieldNumbers.length; i++) {
-				if (fieldNumbers[i] == number) {
-					accessors[i].write(jw, msg, writer);
-					return;
-				}
-			}
-		}
+		return new TypedMessageSchema(fieldList.toArray(TypedFieldAccessor[]::new));
 	}
 }

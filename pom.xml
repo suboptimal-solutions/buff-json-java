@@ -33,6 +33,7 @@
         <module>buff-json-jackson</module>
         <module>buff-json-tests</module>
         <module>buff-json-benchmarks</module>
+        <module>buff-json-conformance</module>
     </modules>
 
     <scm>
@@ -321,6 +322,7 @@
                                 <artifact>buff-json-java</artifact>
                                 <artifact>buff-json-tests</artifact>
                                 <artifact>buff-json-benchmarks</artifact>
+                                <artifact>buff-json-conformance</artifact>
                             </excludeArtifacts>
                         </configuration>
                     </plugin>

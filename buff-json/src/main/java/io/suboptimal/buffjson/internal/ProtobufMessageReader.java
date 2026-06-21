@@ -162,6 +162,11 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 						&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
 					builder.setField(fd, com.google.protobuf.Value.newBuilder()
 							.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build());
+				} else if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
+						&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
+					// A null for a google.protobuf.NullValue field means NULL_VALUE (and,
+					// in a oneof, marks the case as set).
+					builder.setField(fd, fd.getEnumType().findValueByNumber(0));
 				}
 				continue;
 			}

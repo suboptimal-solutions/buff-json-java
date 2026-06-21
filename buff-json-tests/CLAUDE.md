@@ -11,6 +11,7 @@ pure reflection).
 
 - `BuffJsonReferenceTest.java` — 5 smoke tests (scalar, default, complex, plus two `DynamicMessage` tests on UTF-16 and UTF-8 paths — `DynamicMessage` is the only thing that exclusively exercises pure reflection in production)
 - `BuffJsonMemoryTest.java` — 8 reachability tests using `WeakReference` + `System.gc()` to confirm the encoder doesn't retain `Message` references after `encode`/`encodeToBytes`/`encode(stream)` on any of the three paths, including `DynamicMessage`. Steady-state allocation regressions are caught separately by `./allocation-check.sh` in CI (JMH `-prof gc`).
+- `BuffJsonCrossPathFuzzTest.java` — seeded-random (reproducible) fuzzer over `TestAllTypesProto3`. `encodePathsAgreeAndAreParseable` asserts **codegen == typed == reflection** byte-for-byte (UTF-16 and UTF-8) over 500 messages — the direct "the three paths agree" guarantee — plus a buff-json self round-trip. `decodePathsRoundTrip` asserts both decode paths reconstruct messages from `JsonFormat`-printed JSON. (It does not byte-compare encode output against `JsonFormat` because fastjson2 and protobuf may format the same float/double differently — both round-trip to the same value; curated byte-equality lives in `BuffJsonProto3ConformanceTest`.)
 - `BuffJsonProto3ConformanceTest.java` — 81 tests in 16 nested classes:
   - ScalarTypes (13): all types, boundaries, NaN, Infinity, -0.0, unicode, escapes, bytes
   - RepeatedFields (3): all scalar types, empty, single element
@@ -28,6 +29,10 @@ pure reflection).
   - AnyTests (6): regular message, Duration, Timestamp, nested Any, empty, default inner
   - EmptyTests (1): google.protobuf.Empty serialization
   - EmptyMessages (5): all message types empty
+  - ExternalMessages: google.type.* messages (Color, Money, Interval, PostalAddress)
+  - OfficialProto3TestMessages: the official `protobuf_test_messages.proto3.TestAllTypesProto3` sample (the same message the conformance_test_runner drives), compared **byte-exact** against `JsonFormat` across all three paths. Covers edge cases the project's own protos don't: multiple distinct enum types per message, a negative enum value (NEG = -1 → name "NEG"), an aliased enum (allow_alias → canonical first name), digit/underscore field names, an interleaved oneof (emitted in field-number order), and a standalone `google.protobuf.NullValue` oneof field (serialized as JSON `null`).
+
+`BuffJsonProto3DecodeConformanceTest.java` mirrors the encode tests for the JSON→protobuf direction (`assertDecodeMatchesOriginal`: JsonFormat.print → BuffJson.decode → equals), including the same `OfficialProto3TestMessages` sample (a JSON `null` round-trips back to a present `NullValue` field).
 
 ## Test Pattern
 
@@ -58,6 +63,7 @@ are produced alongside standard protobuf sources. A `<resources>` entry copies t
 
 - `conformance_test.proto` — comprehensive proto3 test messages including TestAny, TestEmpty
 - `validate_test.proto` — test messages with buf.validate annotations and field comments
+- `google/protobuf/test_messages_proto3.proto` — the official protobuf conformance sample message (`TestAllTypesProto3`), vendored verbatim from protobuf `v34.1` (same file as in `buff-json-conformance`). Bump together with `protobuf.version`.
 
 ### JSON Schema Tests
 

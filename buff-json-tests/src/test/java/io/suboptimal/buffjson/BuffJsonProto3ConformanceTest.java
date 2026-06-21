@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets;
 
 import com.google.protobuf.*;
 import com.google.protobuf.util.JsonFormat;
+import com.google.protobuf_test_messages.proto3.TestMessagesProto3.ForeignEnum;
+import com.google.protobuf_test_messages.proto3.TestMessagesProto3.TestAllTypesProto3;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -859,6 +861,148 @@ class BuffJsonProto3ConformanceTest {
 			assertMatchesReference(com.google.type.Money.getDefaultInstance());
 			assertMatchesReference(com.google.type.Interval.getDefaultInstance());
 			assertMatchesReference(com.google.type.PostalAddress.getDefaultInstance());
+		}
+	}
+
+	// =========================================================================
+	// Official protobuf conformance message (protobuf_test_messages.proto3.
+	// TestAllTypesProto3) — the same sample the conformance_test_runner drives
+	// (see buff-json-conformance). Exercises codegen edge cases the project's own
+	// protos don't: multiple distinct enum types per message, a negative enum
+	// value (NEG = -1), an aliased enum (allow_alias), and digit/underscore field
+	// names — all compared against JsonFormat across the three paths.
+	// =========================================================================
+	@Nested
+	class OfficialProto3TestMessages {
+
+		@Test
+		void defaultInstance() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.getDefaultInstance());
+		}
+
+		@Test
+		void fullyPopulated() throws Exception {
+			assertMatchesReference(richSample());
+		}
+
+		@Test
+		void negativeNestedEnumSerializesByName() throws Exception {
+			assertMatchesReference(
+					TestAllTypesProto3.newBuilder().setOptionalNestedEnum(TestAllTypesProto3.NestedEnum.NEG).build());
+		}
+
+		@Test
+		void aliasedEnumUsesCanonicalName() throws Exception {
+			// MOO == 2 == ALIAS_BAZ; proto3 JSON emits the first-declared name.
+			assertMatchesReference(
+					TestAllTypesProto3.newBuilder().setOptionalAliasedEnum(TestAllTypesProto3.AliasedEnum.MOO).build());
+		}
+
+		@Test
+		void multipleDistinctEnumTypes() throws Exception {
+			assertMatchesReference(
+					TestAllTypesProto3.newBuilder().setOptionalNestedEnum(TestAllTypesProto3.NestedEnum.BAR)
+							.setOptionalForeignEnum(ForeignEnum.FOREIGN_BAZ)
+							.setOptionalAliasedEnum(TestAllTypesProto3.AliasedEnum.ALIAS_BAR).build());
+		}
+
+		@Test
+		void digitAndUnderscoreFieldNames() throws Exception {
+			assertMatchesReference(
+					TestAllTypesProto3.newBuilder().setFieldname1(1).setFieldName2(2).setFieldName3(3).setField0Name5(5)
+							.setField0Name6(6).setFieldName7(7).setFIELDNAME11(11).setFIELDName12(12).build());
+		}
+
+		@Test
+		void oneofUint32() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder().setOneofUint32(7).build());
+		}
+
+		@Test
+		void oneofString() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder().setOneofString("picked").build());
+		}
+
+		@Test
+		void oneofNestedMessage() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder()
+					.setOneofNestedMessage(TestAllTypesProto3.NestedMessage.newBuilder().setA(5)).build());
+		}
+
+		@Test
+		void oneofEnum() throws Exception {
+			assertMatchesReference(
+					TestAllTypesProto3.newBuilder().setOneofEnum(TestAllTypesProto3.NestedEnum.NEG).build());
+		}
+
+		@Test
+		void oneofNullValueSerializesAsJsonNull() throws Exception {
+			// A present google.protobuf.NullValue field serializes as JSON null, not the
+			// enum name "NULL_VALUE".
+			assertMatchesReference(TestAllTypesProto3.newBuilder().setOneofNullValue(NullValue.NULL_VALUE).build());
+		}
+
+		@Test
+		void mapsWithVariousKeyAndValueTypes() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder().putMapInt32Int32(1, 100).putMapInt64Int64(2L, 200L)
+					.putMapBoolBool(true, false).putMapStringString("k", "v")
+					.putMapStringNestedMessage("n", TestAllTypesProto3.NestedMessage.newBuilder().setA(9).build())
+					.putMapStringNestedEnum("e", TestAllTypesProto3.NestedEnum.BAR).build());
+		}
+
+		@Test
+		void wrapperTypes() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder().setOptionalInt32Wrapper(Int32Value.of(0))
+					.setOptionalStringWrapper(StringValue.of("wrapped")).setOptionalBoolWrapper(BoolValue.of(true))
+					.build());
+		}
+
+		@Test
+		void wellKnownTypeFields() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder()
+					.setOptionalTimestamp(Timestamp.newBuilder().setSeconds(1136214245).setNanos(500000000))
+					.setOptionalDuration(Duration.newBuilder().setSeconds(3).setNanos(250000000))
+					.setOptionalFieldMask(FieldMask.newBuilder().addPaths("foo_bar").addPaths("baz"))
+					.setOptionalStruct(
+							Struct.newBuilder().putFields("s", Value.newBuilder().setStringValue("v").build()))
+					.setOptionalValue(Value.newBuilder().setNumberValue(1.5).build()).build());
+		}
+
+		@Test
+		void nestedAndRecursive() throws Exception {
+			assertMatchesReference(TestAllTypesProto3.newBuilder()
+					.setOptionalNestedMessage(TestAllTypesProto3.NestedMessage.newBuilder().setA(1)
+							.setCorecursive(TestAllTypesProto3.newBuilder().setOptionalInt32(2)))
+					.setRecursiveMessage(TestAllTypesProto3.newBuilder().setOptionalInt32(3)
+							.setRecursiveMessage(TestAllTypesProto3.newBuilder().setOptionalInt32(4)))
+					.build());
+		}
+
+		private TestAllTypesProto3 richSample() {
+			return TestAllTypesProto3.newBuilder().setOptionalInt32(-42).setOptionalInt64(-123456789012345L)
+					.setOptionalUint32(-1).setOptionalUint64(-1L).setOptionalSint32(-7).setOptionalSint64(-8L)
+					.setOptionalFixed32(9).setOptionalFixed64(10L).setOptionalSfixed32(-11).setOptionalSfixed64(-12L)
+					.setOptionalFloat(3.5f).setOptionalDouble(2.5).setOptionalBool(true)
+					.setOptionalString("héllo \"world\"\n").setOptionalBytes(ByteString.copyFromUtf8("bytes"))
+					.setOptionalNestedMessage(TestAllTypesProto3.NestedMessage.newBuilder().setA(17)
+							.setCorecursive(TestAllTypesProto3.newBuilder().setOptionalInt32(99)))
+					.setOptionalNestedEnum(TestAllTypesProto3.NestedEnum.NEG)
+					.setOptionalForeignEnum(ForeignEnum.FOREIGN_BAR)
+					.setOptionalAliasedEnum(TestAllTypesProto3.AliasedEnum.MOO).setFieldname1(1).setFieldName2(2)
+					.setFieldName3(3).setField0Name5(5).setFieldName7(7).setFIELDNAME11(11).addRepeatedInt32(1)
+					.addRepeatedInt32(2).addRepeatedString("a").addRepeatedString("b")
+					.addRepeatedNestedEnum(TestAllTypesProto3.NestedEnum.FOO)
+					.addRepeatedNestedEnum(TestAllTypesProto3.NestedEnum.NEG).putMapInt32Int32(1, 100)
+					.putMapStringString("k", "v")
+					.putMapStringNestedMessage("n", TestAllTypesProto3.NestedMessage.newBuilder().setA(3).build())
+					.putMapBoolBool(true, false).setOptionalInt32Wrapper(Int32Value.of(0))
+					.setOptionalStringWrapper(StringValue.of("ws")).setOptionalBoolWrapper(BoolValue.of(true))
+					.setOptionalTimestamp(Timestamp.newBuilder().setSeconds(1136214245))
+					.setOptionalDuration(Duration.newBuilder().setSeconds(3).setNanos(500000000))
+					.setOptionalFieldMask(FieldMask.newBuilder().addPaths("foo_bar").addPaths("baz"))
+					.setOptionalStruct(
+							Struct.newBuilder().putFields("s", Value.newBuilder().setStringValue("v").build()))
+					.setOptionalValue(Value.newBuilder().setNumberValue(1.5).build()).setOneofString("oneof").build();
 		}
 	}
 }

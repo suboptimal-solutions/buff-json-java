@@ -42,3 +42,78 @@ jobs:
 
       - name: Run allocation regression check
         run: ./allocation-check.sh
+
+  conformance:
+    # Runs the official protobuf proto3 JSON conformance suite once, on a single
+    # OS, against the buff-json testee (buff-json-conformance module). The C++
+    # conformance_test_runner is built from protobuf source (matching our
+    # protobuf-java version) via CMake and cached by version.
+    #
+    # Currently report-only (ENFORCE_CONFORMANCE=0): the runner prints any
+    # failures but does not fail the build while failure_list.txt is curated.
+    # Flip ENFORCE_CONFORMANCE to "1" (and populate the failure list) to gate.
+    name: Conformance (proto3 JSON)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Protobuf release tag to build the conformance_test_runner from. Must match
+      # the protobuf-java version in the root pom (4.34.1 -> tag v34.1).
+      PROTOBUF_CONFORMANCE_VERSION: "34.1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: 21
+          cache: maven
+
+      - name: Build conformance testee jar
+        run: mvn package -DskipTests -B
+
+      - name: Cache conformance_test_runner ${{ env.PROTOBUF_CONFORMANCE_VERSION }}
+        id: cache-runner
+        uses: actions/cache@v4
+        with:
+          path: conformance-test-runner/conformance_test_runner
+          key: ${{ runner.os }}-conformance-runner-${{ env.PROTOBUF_CONFORMANCE_VERSION }}
+
+      - name: Checkout protobuf ${{ env.PROTOBUF_CONFORMANCE_VERSION }}
+        if: steps.cache-runner.outputs.cache-hit != 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: protocolbuffers/protobuf
+          ref: v${{ env.PROTOBUF_CONFORMANCE_VERSION }}
+          submodules: recursive
+          path: protobuf-src
+
+      - name: Build conformance_test_runner
+        if: steps.cache-runner.outputs.cache-hit != 'true'
+        run: |
+          cmake -S protobuf-src -B conformance-test-runner \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=17 \
+            -Dprotobuf_BUILD_CONFORMANCE=ON \
+            -Dprotobuf_BUILD_TESTS=OFF \
+            -Dprotobuf_BUILD_LIBUPB=OFF
+          cmake --build conformance-test-runner --parallel "$(nproc)" --target conformance_test_runner
+
+      - name: Run proto3 JSON conformance suite (codegen, runtime, reflection)
+        env:
+          ENFORCE_CONFORMANCE: "0"
+        run: |
+          runner="$(find "$PWD/conformance-test-runner" -name conformance_test_runner -type f | head -1)"
+          if [ -z "$runner" ]; then
+            echo "conformance_test_runner not found under conformance-test-runner/" >&2
+            exit 1
+          fi
+          export CONF_TEST_PATH="$runner"
+          # Same suite, all three buff-json encode/decode paths (the runner is reused).
+          rc=0
+          for path in codegen runtime reflection; do
+            echo "::group::Conformance — buff-json path=$path"
+            BUFFJSON_PATH="$path" bash buff-json-conformance/test-conformance.sh || rc=$?
+            echo "::endgroup::"
+          done
+          exit $rc

@@ -329,6 +329,12 @@ public final class BuffJsonProtocPlugin {
 			char c = name.charAt(i);
 			if (c == '_') {
 				capitalizeNext = true;
+			} else if (c >= '0' && c <= '9') {
+				// Mirror protobuf's UnderscoresToCamelCase: a digit forces the next
+				// letter to be capitalized (e.g. field0name5 -> Field0Name5), so the
+				// generated accessor names match protobuf-java's generated getters/setters.
+				sb.append(c);
+				capitalizeNext = true;
 			} else {
 				sb.append(capitalizeNext ? Character.toUpperCase(c) : c);
 				capitalizeNext = false;

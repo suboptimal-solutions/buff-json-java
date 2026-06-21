@@ -42,9 +42,13 @@ final class DecoderGenerator {
 		sb.append("            String fieldName = reader.readFieldName();\n");
 		sb.append("            if (fieldName == null) break;\n");
 
-		boolean hasValueField = msgDesc.getFields().stream().anyMatch(DecoderGenerator::isValueField);
+		// A null JSON value normally means "absent" (skip), but for
+		// google.protobuf.Value and google.protobuf.NullValue fields it is meaningful
+		// (NullValue). When the message has such fields we can't blanket-skip nulls;
+		// each field decides instead.
+		boolean nullSensitive = msgDesc.getFields().stream().anyMatch(fd -> isValueField(fd) || isNullValueField(fd));
 
-		if (!hasValueField) {
+		if (!nullSensitive) {
 			sb.append("            if (reader.nextIfNull()) continue;\n");
 		}
 
@@ -59,11 +63,11 @@ final class DecoderGenerator {
 			sb.append(" -> ");
 
 			if (fd.isMapField()) {
-				generateMapFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, hasValueField);
+				generateMapFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, nullSensitive);
 			} else if (fd.isRepeated()) {
-				generateRepeatedFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, hasValueField);
+				generateRepeatedFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, nullSensitive);
 			} else {
-				generateScalarFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, hasValueField);
+				generateScalarFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, nullSensitive);
 			}
 		}
 
@@ -79,19 +83,27 @@ final class DecoderGenerator {
 	// --- Scalar field ---
 
 	private static void generateScalarFieldRead(StringBuilder sb, FieldDescriptor fd,
-			Map<String, String> protoToJavaClass, Map<String, String> protoToDecoderClass, boolean hasValueField) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToDecoderClass, boolean nullSensitive) {
 
 		String setter = "builder.set" + BuffJsonProtocPlugin.toCamelCase(fd.getName());
 		sb.append("{\n");
 
-		if (hasValueField && isValueField(fd)) {
+		if (nullSensitive && isValueField(fd)) {
 			sb.append("                    if (reader.nextIfNull()) {\n");
 			sb.append("                        ").append(setter).append(
 					"(com.google.protobuf.Value.newBuilder().setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build());\n");
 			sb.append("                    } else {\n");
 			emitValueRead(sb, fd, setter, protoToJavaClass, protoToDecoderClass, "                        ");
 			sb.append("                    }\n");
-		} else if (hasValueField) {
+		} else if (nullSensitive && isNullValueField(fd)) {
+			// proto3 JSON: a null for a google.protobuf.NullValue field means NULL_VALUE
+			// (and, in a oneof, marks the case as set). Enum fields use the Value setter.
+			sb.append("                    if (reader.nextIfNull()) {\n");
+			sb.append("                        ").append(setter).append("Value(0);\n");
+			sb.append("                    } else {\n");
+			emitValueRead(sb, fd, setter, protoToJavaClass, protoToDecoderClass, "                        ");
+			sb.append("                    }\n");
+		} else if (nullSensitive) {
 			sb.append("                    if (!reader.nextIfNull()) {\n");
 			emitValueRead(sb, fd, setter, protoToJavaClass, protoToDecoderClass, "                        ");
 			sb.append("                    }\n");
@@ -105,13 +117,13 @@ final class DecoderGenerator {
 	// --- Repeated field ---
 
 	private static void generateRepeatedFieldRead(StringBuilder sb, FieldDescriptor fd,
-			Map<String, String> protoToJavaClass, Map<String, String> protoToDecoderClass, boolean hasValueField) {
+			Map<String, String> protoToJavaClass, Map<String, String> protoToDecoderClass, boolean nullSensitive) {
 
 		String adder = "builder.add" + BuffJsonProtocPlugin.toCamelCase(fd.getName());
 		sb.append("{\n");
 
-		String indent = hasValueField ? "                    " : "                ";
-		if (hasValueField) {
+		String indent = nullSensitive ? "                    " : "                ";
+		if (nullSensitive) {
 			sb.append("                    if (!reader.nextIfNull()) {\n");
 		}
 
@@ -120,7 +132,7 @@ final class DecoderGenerator {
 		emitValueRead(sb, fd, adder, protoToJavaClass, protoToDecoderClass, indent + "        ");
 		sb.append(indent).append("    }\n");
 
-		if (hasValueField) {
+		if (nullSensitive) {
 			sb.append("                    }\n");
 		}
 		sb.append("                }\n");
@@ -129,7 +141,7 @@ final class DecoderGenerator {
 	// --- Map field ---
 
 	private static void generateMapFieldRead(StringBuilder sb, FieldDescriptor fd, Map<String, String> protoToJavaClass,
-			Map<String, String> protoToDecoderClass, boolean hasValueField) {
+			Map<String, String> protoToDecoderClass, boolean nullSensitive) {
 
 		Descriptor entryDesc = fd.getMessageType();
 		FieldDescriptor keyFd = entryDesc.findFieldByName("key");
@@ -138,8 +150,8 @@ final class DecoderGenerator {
 		String putter = "builder.put" + BuffJsonProtocPlugin.toCamelCase(fd.getName());
 		sb.append("{\n");
 
-		String indent = hasValueField ? "                    " : "                ";
-		if (hasValueField) {
+		String indent = nullSensitive ? "                    " : "                ";
+		if (nullSensitive) {
 			sb.append("                    if (!reader.nextIfNull()) {\n");
 		}
 
@@ -169,7 +181,7 @@ final class DecoderGenerator {
 
 		sb.append(indent).append("    }\n");
 
-		if (hasValueField) {
+		if (nullSensitive) {
 			sb.append("                    }\n");
 		}
 		sb.append("                }\n");
@@ -320,5 +332,10 @@ final class DecoderGenerator {
 	private static boolean isValueField(FieldDescriptor fd) {
 		return fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
 				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName());
+	}
+
+	private static boolean isNullValueField(FieldDescriptor fd) {
+		return fd.getJavaType() == FieldDescriptor.JavaType.ENUM
+				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName());
 	}
 }

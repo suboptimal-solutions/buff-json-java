@@ -9,7 +9,9 @@ import java.util.function.ToLongFunction;
 
 import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
+import com.google.protobuf.Descriptors.OneofDescriptor;
 import com.google.protobuf.Message;
 
 import io.suboptimal.buffjson.internal.FieldWriter;
@@ -29,6 +31,25 @@ import io.suboptimal.buffjson.internal.WellKnownTypes;
 public sealed interface TypedFieldAccessor {
 
 	void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer);
+
+	/**
+	 * Writes an enum value by name. Uses the pre-built dense name array for the
+	 * common non-negative case, falling back to a descriptor lookup for negative or
+	 * sparse values (so named negatives like {@code NEG = -1} serialize by name);
+	 * genuinely unknown numbers serialize as the integer.
+	 */
+	static void writeEnumName(JSONWriter jw, int ev, String[] names, EnumDescriptor enumType) {
+		String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
+		if (enumName == null) {
+			var vd = enumType.findValueByNumber(ev);
+			if (vd != null)
+				enumName = vd.getName();
+		}
+		if (enumName != null)
+			jw.writeString(enumName);
+		else
+			jw.writeInt32(ev);
+	}
 
 	record IntAccessor(ToIntFunction<Message> getter, boolean unsigned, FieldName name) implements TypedFieldAccessor {
 		@Override
@@ -123,7 +144,7 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record EnumAccessor(ToIntFunction<Message> valueGetter, String[] names,
+	record EnumAccessor(ToIntFunction<Message> valueGetter, String[] names, EnumDescriptor enumType, boolean nullValue,
 			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
@@ -131,11 +152,10 @@ public sealed interface TypedFieldAccessor {
 			if (ev == 0)
 				return;
 			name.writeTo(jw);
-			String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
-			if (enumName != null)
-				jw.writeString(enumName);
+			if (nullValue)
+				jw.writeNull();
 			else
-				jw.writeInt32(ev);
+				writeEnumName(jw, ev, names, enumType);
 		}
 	}
 
@@ -239,18 +259,17 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	record PresenceEnumAccessor(ToIntFunction<Message> valueGetter, Predicate<Message> has, String[] names,
-			FieldName name) implements TypedFieldAccessor {
+			EnumDescriptor enumType, boolean nullValue, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			if (!has.test(msg))
 				return;
 			name.writeTo(jw);
-			int ev = valueGetter.applyAsInt(msg);
-			String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
-			if (enumName != null)
-				jw.writeString(enumName);
-			else
-				jw.writeInt32(ev);
+			if (nullValue) {
+				jw.writeNull();
+				return;
+			}
+			writeEnumName(jw, valueGetter.applyAsInt(msg), names, enumType);
 		}
 	}
 
@@ -368,8 +387,8 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record RepeatedEnumAccessor(Function<Message, List<?>> valueListGetter, String[] names,
-			FieldName name) implements TypedFieldAccessor {
+	record RepeatedEnumAccessor(Function<Message, List<?>> valueListGetter, String[] names, EnumDescriptor enumType,
+			boolean nullValue, FieldName name) implements TypedFieldAccessor {
 		@Override
 		@SuppressWarnings("unchecked")
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
@@ -381,12 +400,10 @@ public sealed interface TypedFieldAccessor {
 			for (int i = 0; i < values.size(); i++) {
 				if (i > 0)
 					jw.writeComma();
-				int ev = values.get(i);
-				String enumName = ev >= 0 && ev < names.length ? names[ev] : null;
-				if (enumName != null)
-					jw.writeString(enumName);
+				if (nullValue)
+					jw.writeNull();
 				else
-					jw.writeInt32(ev);
+					writeEnumName(jw, values.get(i), names, enumType);
 			}
 			jw.endArray();
 		}
@@ -424,6 +441,28 @@ public sealed interface TypedFieldAccessor {
 				FieldWriter.writeValue(jw, valueFd, entry.getValue(), writer);
 			}
 			jw.endObject();
+		}
+	}
+
+	/**
+	 * Writes the single set field of a oneof (or nothing if unset). Placed in the
+	 * field list at the position of the oneof's first-declared member so output
+	 * field order matches JsonFormat's field-number order.
+	 */
+	record OneofAccessor(OneofDescriptor oneof, int[] fieldNumbers,
+			TypedFieldAccessor[] accessors) implements TypedFieldAccessor {
+		@Override
+		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
+			FieldDescriptor setField = msg.getOneofFieldDescriptor(oneof);
+			if (setField == null)
+				return;
+			int number = setField.getNumber();
+			for (int i = 0; i < fieldNumbers.length; i++) {
+				if (fieldNumbers[i] == number) {
+					accessors[i].write(jw, msg, writer);
+					return;
+				}
+			}
 		}
 	}
 }

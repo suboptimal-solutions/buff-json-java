@@ -1,0 +1,17 @@
+# buff-json proto3 JSON conformance — known failures
+#
+# Each line is the full name of a conformance test that buff-json is expected to
+# fail (or a `*` wildcard pattern). The conformance_test_runner treats listed
+# tests as "expected to fail": a listed test that fails is OK, and a listed test
+# that unexpectedly *passes* is reported as an error (so prune entries as they
+# get fixed).
+#
+# This list is intentionally empty for the first run. CI runs the suite in
+# report-only mode (ENFORCE_CONFORMANCE=0), so the build does not fail; review
+# the runner output in the CI logs, then add the genuinely-unsupported test
+# names here and flip the job to ENFORCE_CONFORMANCE=1 to lock conformance in.
+#
+# Test name format (proto3 JSON only):
+#   Required.Proto3.JsonInput.<case>.<OutputFormat>
+#   Recommended.Proto3.JsonInput.<case>.<OutputFormat>
+#   Required.Proto3.ProtobufInput.<case>.JsonOutput

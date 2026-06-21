@@ -102,14 +102,21 @@ final class EncoderGenerator {
 			sb.append("    static {\n");
 			for (var entry : enumArrays.entrySet()) {
 				String enumClass = entry.getValue();
-				// Use the enum's descriptor values to avoid UNRECOGNIZED
-				// (which throws from getNumber())
-				sb.append("        var edVals = ").append(enumClass).append(".getDescriptor().getValues();\n");
-				sb.append("        int max = 0;\n");
-				sb.append("        for (var v : edVals) if (v.getNumber() > max) max = v.getNumber();\n");
-				sb.append("        ENUM_").append(entry.getKey()).append("_NAMES = new String[max + 1];\n");
-				sb.append("        for (var v : edVals) ENUM_").append(entry.getKey())
+				// Each enum gets its own block so the edVals/max locals don't collide
+				// when a message references several distinct enum types. Negative enum
+				// values (e.g. NEG = -1) can't index the array — they're skipped here
+				// and resolved by descriptor lookup at the write site instead. The
+				// "== null" guard makes the first-declared name win for aliased enums
+				// (allow_alias), matching findValueByNumber / JsonFormat's canonical name.
+				sb.append("        {\n");
+				sb.append("            var edVals = ").append(enumClass).append(".getDescriptor().getValues();\n");
+				sb.append("            int max = 0;\n");
+				sb.append("            for (var v : edVals) if (v.getNumber() > max) max = v.getNumber();\n");
+				sb.append("            ENUM_").append(entry.getKey()).append("_NAMES = new String[max + 1];\n");
+				sb.append("            for (var v : edVals) if (v.getNumber() >= 0 && ENUM_").append(entry.getKey())
+						.append("_NAMES[v.getNumber()] == null) ENUM_").append(entry.getKey())
 						.append("_NAMES[v.getNumber()] = v.getName();\n");
+				sb.append("        }\n");
 			}
 			sb.append("    }\n");
 		}
@@ -122,17 +129,20 @@ final class EncoderGenerator {
 				.append(" message, io.suboptimal.buffjson.internal.ProtobufMessageWriter writer) {\n");
 		sb.append("        boolean utf8 = jsonWriter.isUTF8();\n");
 
-		// Collect fields that are part of oneofs (we'll handle them via the oneof
-		// switch)
-		var oneofFields = new java.util.HashSet<FieldDescriptor>();
-		for (OneofDescriptor oneof : msgDesc.getRealOneofs()) {
-			oneofFields.addAll(oneof.getFields());
-		}
-
-		// Regular fields (not in oneof)
+		// Emit fields in descriptor (field-number) order, matching JsonFormat's
+		// output order. A oneof's switch is emitted at the position of its
+		// first-declared member field, then the remaining members are skipped —
+		// keeping the single set oneof field in field-number order rather than
+		// bunching all oneofs at the end.
+		var emittedOneofs = new java.util.HashSet<OneofDescriptor>();
 		for (FieldDescriptor fd : msgDesc.getFields()) {
-			if (oneofFields.contains(fd))
+			OneofDescriptor oneof = fd.getRealContainingOneof();
+			if (oneof != null) {
+				if (emittedOneofs.add(oneof)) {
+					generateOneof(sb, oneof, messageClassName, protoToJavaClass, protoToEncoderClass);
+				}
 				continue;
+			}
 			if (fd.isMapField()) {
 				generateMapField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			} else if (fd.isRepeated()) {
@@ -142,11 +152,6 @@ final class EncoderGenerator {
 			} else {
 				generateImplicitPresenceField(sb, fd, messageClassName, protoToJavaClass, protoToEncoderClass);
 			}
-		}
-
-		// Oneof fields
-		for (OneofDescriptor oneof : msgDesc.getRealOneofs()) {
-			generateOneof(sb, oneof, messageClassName, protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("    }\n");
@@ -228,7 +233,7 @@ final class EncoderGenerator {
 				sb.append("            int ev = message.").append(getterName(fd)).append("Value();\n");
 				sb.append("            if (ev != 0) {\n");
 				emitWriteName(sb, constName, "                ");
-				writeEnumValue(sb, enumArrayConstant(fd), "ev");
+				writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), "ev");
 				sb.append("            }\n");
 				sb.append("        }\n");
 			}
@@ -262,7 +267,7 @@ final class EncoderGenerator {
 			case ENUM -> {
 				sb.append("            {\n");
 				sb.append("                int ev = message.").append(getterName(fd)).append("Value();\n");
-				writeEnumValue(sb, enumArrayConstant(fd), "ev");
+				writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), "ev");
 				sb.append("            }\n");
 			}
 			case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass, protoToEncoderClass);
@@ -307,7 +312,7 @@ final class EncoderGenerator {
 			case ENUM -> {
 				// Use raw int values to handle UNRECOGNIZED enum constants
 				// (which throw from getNumber()/getValueDescriptor())
-				writeEnumValue(sb, enumArrayConstant(fd), "values.get(i)");
+				writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), "values.get(i)");
 			}
 			case MESSAGE -> writeMessageValue(sb, fd, "values.get(i)", protoToJavaClass, protoToEncoderClass);
 		}
@@ -368,7 +373,7 @@ final class EncoderGenerator {
 				// Map enum values: entry.getValue() is an Integer (raw int) since
 				// we use the ValueMap getter. Look up in pre-cached name array.
 				writeEnumValue(sb, "ENUM_" + valueFd.getEnumType().getName().toUpperCase() + "_NAMES",
-						"entry.getValue()");
+						enumJavaClass(valueFd, protoToJavaClass), "entry.getValue()");
 			}
 			case MESSAGE -> writeMessageValue(sb, valueFd, "entry.getValue()", protoToJavaClass, protoToEncoderClass);
 		}
@@ -406,7 +411,7 @@ final class EncoderGenerator {
 				case ENUM -> {
 					sb.append("                {\n");
 					sb.append("                    int ev = message.").append(getterName(fd)).append("Value();\n");
-					writeEnumValue(sb, enumArrayConstant(fd), "ev");
+					writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), "ev");
 					sb.append("                }\n");
 				}
 				case MESSAGE -> writeMessageValue(sb, fd, getter, protoToJavaClass, protoToEncoderClass);
@@ -415,7 +420,10 @@ final class EncoderGenerator {
 			sb.append("            }\n");
 		}
 
-		String notSetValue = oneof.getName().toUpperCase() + "_NOT_SET";
+		// protobuf-java's oneof case enum names the not-set value after the
+		// camelCased oneof name (oneof_field -> ONEOFFIELD_NOT_SET), not the raw
+		// snake_case name.
+		String notSetValue = BuffJsonProtocPlugin.toCamelCase(oneof.getName()).toUpperCase() + "_NOT_SET";
 		sb.append("            case ").append(notSetValue).append(" -> {}\n");
 		sb.append("        }\n");
 	}
@@ -460,14 +468,31 @@ final class EncoderGenerator {
 		sb.append("                }\n");
 	}
 
-	private static void writeEnumValue(StringBuilder sb, String enumArrayConstant, String expr) {
+	private static void writeEnumValue(StringBuilder sb, String enumArrayConstant, String enumClass, String expr) {
+		if ("com.google.protobuf.NullValue".equals(enumClass)) {
+			// proto3 JSON: google.protobuf.NullValue always serializes as JSON null.
+			sb.append("                jsonWriter.writeNull();\n");
+			return;
+		}
 		sb.append("                {\n");
+		sb.append("                    int en = ").append(expr).append(";\n");
 		sb.append("                    String[] names = ").append(enumArrayConstant).append(";\n");
-		sb.append("                    String name = ").append(expr).append(" >= 0 && ").append(expr)
-				.append(" < names.length ? names[").append(expr).append("] : null;\n");
-		sb.append("                    if (name != null) jsonWriter.writeString(name);\n");
-		sb.append("                    else jsonWriter.writeInt32(").append(expr).append(");\n");
+		sb.append("                    String enm = en >= 0 && en < names.length ? names[en] : null;\n");
+		// Fast path is the dense non-negative array; fall back to a descriptor lookup
+		// for named negative values (e.g. NEG = -1) so they serialize by name, while
+		// genuinely unknown numbers still serialize as the integer.
+		sb.append("                    if (enm == null) {\n");
+		sb.append("                        var evd = ").append(enumClass)
+				.append(".getDescriptor().findValueByNumber(en);\n");
+		sb.append("                        if (evd != null) enm = evd.getName();\n");
+		sb.append("                    }\n");
+		sb.append("                    if (enm != null) jsonWriter.writeString(enm);\n");
+		sb.append("                    else jsonWriter.writeInt32(en);\n");
 		sb.append("                }\n");
+	}
+
+	private static String enumJavaClass(FieldDescriptor fd, Map<String, String> protoToJavaClass) {
+		return protoToJavaClass.get(fd.getEnumType().getFullName());
 	}
 
 	private static void writeMessageValue(StringBuilder sb, FieldDescriptor fd, String expr,

@@ -110,7 +110,7 @@ public final class TypedFieldAccessorFactory {
 			case ENUM -> {
 				var valueGetter = createIntGetter(messageClass, getterName + "Value");
 				String[] names = buildEnumNames(fd.getEnumType());
-				yield new TypedFieldAccessor.EnumAccessor(valueGetter, names, name);
+				yield new TypedFieldAccessor.EnumAccessor(valueGetter, names, fd.getEnumType(), isNullValue(fd), name);
 			}
 			case MESSAGE -> createPresenceAccessor(fd, messageClass);
 		};
@@ -164,7 +164,8 @@ public final class TypedFieldAccessorFactory {
 				var valueGetter = createIntGetter(messageClass, getterName + "Value");
 				var has = createPredicate(messageClass, hasName);
 				String[] names = buildEnumNames(fd.getEnumType());
-				yield new TypedFieldAccessor.PresenceEnumAccessor(valueGetter, has, names, name);
+				yield new TypedFieldAccessor.PresenceEnumAccessor(valueGetter, has, names, fd.getEnumType(),
+						isNullValue(fd), name);
 			}
 			case MESSAGE -> {
 				var getter = createObjectGetter(messageClass, getterName);
@@ -186,7 +187,8 @@ public final class TypedFieldAccessorFactory {
 			var listGetter = (Function<Message, List<?>>) (Function<?, ?>) createObjectGetter(messageClass,
 					valueListGetterName);
 			String[] names = buildEnumNames(fd.getEnumType());
-			return new TypedFieldAccessor.RepeatedEnumAccessor(listGetter, names, name);
+			return new TypedFieldAccessor.RepeatedEnumAccessor(listGetter, names, fd.getEnumType(), isNullValue(fd),
+					name);
 		}
 		String listGetterName = "get" + toCamelCase(fd.getName()) + "List";
 		var listGetter = (Function<Message, List<?>>) (Function<?, ?>) createObjectGetter(messageClass, listGetterName);
@@ -262,12 +264,15 @@ public final class TypedFieldAccessorFactory {
 	private static ToDoubleFunction<Message> createFloatAsDoubleGetter(Class<? extends Message> msgClass,
 			String methodName) throws Throwable {
 		Method method = msgClass.getMethod(methodName);
+		// Pass the direct float-returning handle and let LambdaMetafactory perform the
+		// float -> double widening via the instantiated return type. Pre-adapting with
+		// explicitCastArguments yields a non-direct handle that metafactory rejects
+		// ("not direct or cannot be cracked"), which silently sank the whole typed
+		// schema to the reflection path for any message containing a float field.
 		MethodHandle handle = LOOKUP.unreflect(method);
-		MethodHandle adapted = MethodHandles.explicitCastArguments(handle,
-				MethodType.methodType(double.class, msgClass));
 		CallSite site = LambdaMetafactory.metafactory(LOOKUP, "applyAsDouble",
 				MethodType.methodType(ToDoubleFunction.class), MethodType.methodType(double.class, Object.class),
-				adapted, MethodType.methodType(double.class, msgClass));
+				handle, MethodType.methodType(double.class, msgClass));
 		return (ToDoubleFunction<Message>) site.getTarget().invoke();
 	}
 
@@ -318,6 +323,14 @@ public final class TypedFieldAccessorFactory {
 			char c = name.charAt(i);
 			if (c == '_') {
 				capitalizeNext = true;
+			} else if (c >= '0' && c <= '9') {
+				// Mirror protobuf's UnderscoresToCamelCase: a digit forces the next
+				// letter to be capitalized (field0name5 -> Field0Name5), so the resolved
+				// getter name matches protobuf-java's generated accessor. Without this the
+				// getter lookup fails and the whole typed schema silently falls back to
+				// the reflection path.
+				sb.append(c);
+				capitalizeNext = true;
 			} else {
 				sb.append(capitalizeNext ? Character.toUpperCase(c) : c);
 				capitalizeNext = false;
@@ -352,6 +365,14 @@ public final class TypedFieldAccessorFactory {
 		return type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64;
 	}
 
+	/**
+	 * True if the field's enum type is {@code google.protobuf.NullValue}
+	 * (serializes as JSON null).
+	 */
+	private static boolean isNullValue(FieldDescriptor fd) {
+		return fd.getEnumType().getFullName().equals("google.protobuf.NullValue");
+	}
+
 	static String[] buildEnumNames(EnumDescriptor enumType) {
 		int max = 0;
 		for (EnumValueDescriptor v : enumType.getValues()) {
@@ -360,7 +381,13 @@ public final class TypedFieldAccessorFactory {
 		}
 		String[] names = new String[max + 1];
 		for (EnumValueDescriptor v : enumType.getValues()) {
-			names[v.getNumber()] = v.getName();
+			// Negative values (e.g. NEG = -1) can't index the array — skipped here and
+			// resolved via descriptor at write time. The null guard makes the
+			// first-declared name win for aliased enums (allow_alias), matching
+			// findValueByNumber / JsonFormat's canonical name.
+			if (v.getNumber() >= 0 && names[v.getNumber()] == null) {
+				names[v.getNumber()] = v.getName();
+			}
 		}
 		return names;
 	}

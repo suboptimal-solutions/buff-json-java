@@ -134,9 +134,10 @@ JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
 - **buff-json-jackson** — Jackson `Module` wrapping `BuffJson.encode()`/`decode()` for `ObjectMapper` integration. Thin adapter (~3 classes), no reimplementation. Depends on `buff-json`, `jackson-databind`, `fastjson2`, `protobuf-java` (all provided). Provides `BuffJsonJacksonModule` (register with ObjectMapper). Protobuf messages work alongside POJOs/records in Jackson serialization. 38 tests including conformance, POJO/record integration, tree model, and roundtrip.
 - **buff-json-tests** — conformance tests (each validates **all three paths**: codegen, typed-accessor, pure reflection) + JSON Schema tests + [buf.validate](https://buf.build/docs/protovalidate/) constraint tests + memory-leak reachability tests (`BuffJsonMemoryTest`) + own .proto definitions
 - **buff-json-benchmarks** — JMH benchmarks (codegen vs typed-accessor vs JsonFormat vs Jackson-HubSpot vs BuffJsonJackson, UTF-16 and UTF-8 split) + own .proto definitions
+- **buff-json-conformance** — testee for the **official protobuf conformance suite** (`conformance_test_runner`). Vendors `conformance.proto` + `test_messages_proto3.proto` from protobuf `v34.1`, runs the protoc plugin on them (codegen path under test), and shades a `conformance-testee.jar` (`ConformanceTestee`) that speaks the runner's framed stdin/stdout protocol. Covers only proto3 JSON (proto2/editions/text/jspb and binary↔binary are `skipped`); JSON via `BuffJson`, binary via protobuf-java. Run via `test-conformance.sh`; the testee's path is selectable with `BUFFJSON_PATH=codegen|runtime|reflection`. Wired into CI as a single-OS `conformance` job that runs the suite once per path (all three validated), report-only via `ENFORCE_CONFORMANCE=0` until `failure_list.txt` is curated. Not published.
 
-Build order in reactor: core → protoc-plugin → schema → swagger → jackson → tests → benchmarks.
-Each consumer module (tests, benchmarks) configures the protoc plugin via ascopes `protobuf-maven-plugin` `<jvmPlugin>`.
+Build order in reactor: core → protoc-plugin → schema → swagger → jackson → tests → benchmarks → conformance.
+Each consumer module (tests, benchmarks, conformance) configures the protoc plugin via ascopes `protobuf-maven-plugin` `<jvmPlugin>`.
 
 ## Not Yet Implemented
 

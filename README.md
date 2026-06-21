@@ -279,6 +279,8 @@ mvn test
 
 The conformance suite parameterizes every test case over **all three encoding paths** (codegen, typed-accessor, pure reflection) and compares output against `JsonFormat.printer().omittingInsignificantWhitespace().print()`. Reachability tests in `BuffJsonMemoryTest` confirm the encoder doesn't retain `Message` references after a call returns. The Jackson module adds tests covering POJO/record integration, tree model interop, and cross-library roundtrips.
 
+In addition, the `buff-json-conformance` module is a testee for Google's **official protobuf conformance suite** (`conformance_test_runner`), exercising buff-json's proto3 JSON encode/decode against the canonical spec corpus. CI builds the C++ runner from matching protobuf source and runs the proto3 JSON suite once; see [buff-json-conformance/CLAUDE.md](buff-json-conformance/CLAUDE.md) to run it locally.
+
 For allocation-rate regression detection, run:
 
 ```bash
@@ -299,6 +301,7 @@ buff-json/
   buff-json-jackson/        # Jackson module wrapping BuffJson for ObjectMapper integration
   buff-json-tests/          # Conformance tests (both paths) + own .proto definitions
   buff-json-benchmarks/     # JMH benchmarks (comparison) + own .proto definitions
+  buff-json-conformance/    # Testee for the official protobuf proto3 JSON conformance suite
 ```
 
 ## Dependencies

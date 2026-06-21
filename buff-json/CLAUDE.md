@@ -45,7 +45,8 @@ io.suboptimal.buffjson.internal.typed/
                                    #   getXxxMap, getXxxValueMap) by name. Returns null on any failure.
   TypedMessageSchema.java          # ConcurrentHashMap<Descriptor, TypedMessageSchema> cache. FAILED sentinel
                                    #   marks descriptors where lambda binding failed (silent fallback to reflection).
-                                   #   Holds TypedFieldAccessor[] + OneofGroup[] per message type.
+                                   #   Holds a single field-number-ordered TypedFieldAccessor[] per message type
+                                   #   (oneofs represented inline by OneofAccessor at their first member).
 ```
 
 ## Serialization Flow (hot path)
@@ -64,8 +65,10 @@ io.suboptimal.buffjson.internal.typed/
      - Returns — never falls through.
    - **Tier 2 — Typed-accessor** (if `useTyped && !(message instanceof DynamicMessage)`):
      - `TypedMessageSchema.forMessage(descriptor, msg.getClass()).writeFields(jw, msg, this)` → LambdaMetafactory-bound typed getters.
-     - First call per Descriptor: `TypedFieldAccessorFactory.create(...)` discovers `getXxx`/`hasXxx`/`getXxxList`/`getXxxValueList`/`getXxxMap`/`getXxxValueMap` by name reflection, then binds via `LambdaMetafactory.metafactory(...)` to `ToIntFunction<Message>`, `ToLongFunction<Message>`, `Predicate<Message>`, `Function<Message, Object>`, etc. Builds `TypedFieldAccessor[]` + `OneofGroup[]`. Cached.
+     - First call per Descriptor: `TypedFieldAccessorFactory.create(...)` discovers `getXxx`/`hasXxx`/`getXxxList`/`getXxxValueList`/`getXxxMap`/`getXxxValueMap` by name reflection, then binds via `LambdaMetafactory.metafactory(...)` to `ToIntFunction<Message>`, `ToLongFunction<Message>`, `Predicate<Message>`, `Function<Message, Object>`, etc. Builds a single `TypedFieldAccessor[]` in field-number order, with each oneof represented by an `OneofAccessor` placed at its first-declared member (so output order matches `JsonFormat`). Cached.
      - On any failure (e.g., `DynamicMessage`, custom protoc, missing accessor), returns `null` — schema goes to `FAILED` sentinel; falls through to Tier 3.
+     - **Getter-name resolution must match protoc exactly** or binding fails and the whole message silently drops to Tier 3. Two easy-to-miss cases: (1) `float` getters — pass the **direct** `(Msg)float` handle to `metafactory` and let it widen `float`→`double`; pre-adapting with `explicitCastArguments` yields a non-direct handle metafactory rejects (this had been sinking every float-containing message to reflection). (2) digit-containing field names — `toCamelCase` capitalizes after a digit (`field0name5` → `getField0Name5`), matching protobuf.
+     - Enum accessors hold the dense name array **and** the `EnumDescriptor`: the array is the fast path; negative/sparse numbers fall back to `findValueByNumber` (so `NEG = -1` → name); `NullValue` enums write JSON `null`.
      - Returns once schema runs successfully.
    - **Tier 3 — Pure reflection** (fallback):
      - Iterates cached `MessageSchema.FieldInfo[]` (no `getAllFields()` TreeMap).
@@ -112,6 +115,7 @@ JSON.parseObject(json, MyMessage.class);  // uses the reader's settings
 - **Wrapper types**: Serialize as unwrapped primitive values, not objects
 - **FieldMask**: `snake_case` → `lowerCamelCase` conversion, comma-joined
 - **Struct/Value/ListValue**: Serialize as native JSON objects/arrays/values
+- **`google.protobuf.NullValue`**: Serializes as JSON `null` (not the name `"NULL_VALUE"`) wherever present — oneof/repeated/map/explicit-presence; implicit `NULL_VALUE` (0) is omitted as the default. On decode, a JSON `null` for a NullValue field means `NULL_VALUE` (marks a oneof case as set). Handled in all three paths: codegen, `FieldWriter` (reflection), and the typed enum accessors. Distinct from a `Value`-typed field, where `null` means a wrapped `NullValue`.
 - **Duration nanos**: Format to 3, 6, or 9 digits (not arbitrary precision)
 - **Any**: Requires TypeRegistry. Regular messages: `{"@type":..., ...fields}`. WKTs: `{"@type":..., "value":...}`
 
