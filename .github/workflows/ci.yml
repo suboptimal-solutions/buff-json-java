@@ -91,12 +91,16 @@ jobs:
       - name: Build conformance_test_runner
         if: steps.cache-runner.outputs.cache-hit != 'true'
         run: |
+          # libprotoc (needed to compile the conformance protos) links libupb
+          # unconditionally in protobuf v34.x — its Rust generator includes upb
+          # reflection headers, and the bootstrap google/protobuf/descriptor.upb.h
+          # ships under upb/reflection/cmake/, an include dir only wired in when
+          # libupb is built. So we must NOT pass -Dprotobuf_BUILD_LIBUPB=OFF here.
           cmake -S protobuf-src -B conformance-test-runner \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=17 \
             -Dprotobuf_BUILD_CONFORMANCE=ON \
-            -Dprotobuf_BUILD_TESTS=OFF \
-            -Dprotobuf_BUILD_LIBUPB=OFF
+            -Dprotobuf_BUILD_TESTS=OFF
           cmake --build conformance-test-runner --parallel "$(nproc)" --target conformance_test_runner
 
       - name: Run proto3 JSON conformance suite (codegen, runtime, reflection)
