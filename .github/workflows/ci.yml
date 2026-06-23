@@ -69,6 +69,18 @@ jobs:
           java-version: 21
           cache: maven
 
+      # protobuf's conformance suite links jsoncpp. Installing the system package
+      # (a) lets the CMake build's find_package(jsoncpp) use it instead of
+      # FetchContent-building a shared libjsoncpp.so into the build tree, and
+      # (b) puts libjsoncpp on the runtime linker path. Ungated (not tied to the
+      # runner cache) so the lib is present even when the build is skipped on a
+      # cache hit — otherwise the cached binary fails with
+      # "libjsoncpp.so.NN: cannot open shared object file".
+      - name: Install jsoncpp (conformance_test_runner dependency)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libjsoncpp-dev
+
       - name: Build conformance testee jar
         run: mvn package -DskipTests -B
 
