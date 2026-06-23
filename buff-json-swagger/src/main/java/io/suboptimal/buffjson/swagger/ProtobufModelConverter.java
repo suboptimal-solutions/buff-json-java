@@ -102,6 +102,7 @@ public class ProtobufModelConverter implements ModelConverter {
 				case "format" -> schema.setFormat((String) value);
 				case "title" -> schema.setTitle((String) value);
 				case "description" -> schema.setDescription((String) value);
+				case "default" -> schema.setDefault(value);
 				case "enum" -> schema.setEnum((List) value);
 				case "const" -> schema.setConst(value);
 				case "pattern" -> schema.setPattern((String) value);

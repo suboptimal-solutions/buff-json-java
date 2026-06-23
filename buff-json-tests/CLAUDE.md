@@ -67,8 +67,9 @@ are produced alongside standard protobuf sources. A `<resources>` entry copies t
 
 ### JSON Schema Tests
 
-- `BuffJsonSchemaTest.java` — 16 tests covering `ProtobufSchema.generate()`:
-  - allScalarTypes: all 15 scalar types mapped to correct JSON Schema types (including format/contentEncoding)
+- `BuffJsonSchemaTest.java` — 17 tests covering `ProtobufSchema.generate()`:
+  - allScalarTypes: all 15 scalar types mapped to correct JSON Schema types (including format/contentEncoding); implicit-presence bool carries `"default": false`
+  - explicitPresenceBoolHasNoDefault: `optional bool` omits the `default` annotation (absent ⟺ unset, not false)
   - repeatedScalars: repeated fields → array with items
   - nestedMessages: nested objects with title, repeated nested, enums with title
   - recursiveMessages: $defs/$ref for self-referential types

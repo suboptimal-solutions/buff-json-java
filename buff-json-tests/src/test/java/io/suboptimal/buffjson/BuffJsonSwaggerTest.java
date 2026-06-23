@@ -70,8 +70,9 @@ class BuffJsonSwaggerTest {
 		assertFloatSchema(props.get("optionalFloat"));
 		assertFloatSchema(props.get("optionalDouble"));
 
-		// bool → boolean
+		// bool (implicit presence) → boolean with default false, propagated to OpenAPI
 		assertType("boolean", props.get("optionalBool"));
+		assertEquals(Boolean.FALSE, props.get("optionalBool").getDefault());
 
 		// string → string
 		assertType("string", props.get("optionalString"));

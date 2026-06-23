@@ -301,12 +301,33 @@ public final class ProtobufSchema {
 			case INT -> schemaForIntField(fd);
 			case LONG -> schemaForLongField(fd);
 			case FLOAT, DOUBLE -> floatSchema();
-			case BOOLEAN -> mapOf("type", "boolean");
+			case BOOLEAN -> {
+				Map<String, Object> schema = mapOf("type", "boolean");
+				// Implicit-presence bool: an omitted property in proto3 JSON is parsed
+				// back as false, so document that via the "default" annotation. Skipped
+				// for repeated elements and map values (emitted even when false) and for
+				// explicit presence (absent means "unset", not false).
+				if (defaultsWhenOmitted(fd)) {
+					schema.put("default", false);
+				}
+				yield schema;
+			}
 			case STRING -> mapOf("type", "string");
 			case BYTE_STRING -> mapOf("type", "string", "contentEncoding", "base64");
 			case ENUM -> schemaForEnum(fd.getEnumType());
 			case MESSAGE -> schemaForMessage(fd.getMessageType());
 		};
+	}
+
+	/**
+	 * True when an absent field in proto3 JSON is parsed back as the type's zero
+	 * value — i.e. a singular, implicit-presence field. Excludes repeated elements
+	 * and map values (serialized even at the default) and explicit presence
+	 * ({@code optional} / oneof member, where absent means "unset", not the
+	 * default).
+	 */
+	private static boolean defaultsWhenOmitted(FieldDescriptor fd) {
+		return !fd.isRepeated() && !fd.hasPresence() && !fd.getContainingType().getOptions().getMapEntry();
 	}
 
 	private static Map<String, Object> schemaForIntField(FieldDescriptor fd) {

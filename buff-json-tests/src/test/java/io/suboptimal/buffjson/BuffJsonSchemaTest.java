@@ -46,14 +46,25 @@ class BuffJsonSchemaTest {
 		assertFloatSchema(props.get("optionalFloat"));
 		assertFloatSchema(props.get("optionalDouble"));
 
-		// bool → boolean
-		assertEquals(Map.of("type", "boolean"), props.get("optionalBool"));
+		// bool (implicit presence) → boolean with default false (omitted JSON ⟺ false)
+		assertEquals(Map.of("type", "boolean", "default", false), props.get("optionalBool"));
 
 		// string → string
 		assertEquals(Map.of("type", "string"), props.get("optionalString"));
 
 		// bytes → string with contentEncoding base64
 		assertBytesSchema(props.get("optionalBytes"));
+	}
+
+	@Test
+	void explicitPresenceBoolHasNoDefault() {
+		// optional bool: an absent field means "unset", not false, so no "default"
+		// annotation is emitted (distinct from the implicit-presence bool above).
+		Map<String, Object> schema = ProtobufSchema.generate(TestOptionalFields.getDescriptor());
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> props = (Map<String, Object>) schema.get("properties");
+		assertEquals(Map.of("type", "boolean"), props.get("optionalBool"));
 	}
 
 	@Test

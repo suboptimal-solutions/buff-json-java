@@ -49,7 +49,7 @@ Walks the protobuf `Descriptor` tree and maps each field to its Proto3 JSON Sche
 - int64, sint64, sfixed64 → `{"type": "string", "format": "int64"}`
 - uint64, fixed64 → `{"type": "string", "format": "uint64"}`
 - float, double → `{"oneOf": [{"type": "number"}, {"type": "string", "enum": ["NaN", "Infinity", "-Infinity"]}]}`
-- bool → `{"type": "boolean"}`
+- bool → `{"type": "boolean"}`; **implicit-presence** singular bool also gets `"default": false` (an omitted property in proto3 JSON is parsed back as `false`). Excluded for explicit presence (`optional`/oneof — absent means "unset", not `false`), repeated elements, map values, and `BoolValue` (all serialize `false` rather than omit it). Keyed off `FieldDescriptor.hasPresence()` in the singular-field branch of `schemaForField`.
 - string → `{"type": "string"}`
 - bytes → `{"type": "string", "contentEncoding": "base64"}`
 - enum → `{"type": "string", "title": "EnumName", "enum": ["VALUE1", ...]}`
