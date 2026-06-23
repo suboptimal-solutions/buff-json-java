@@ -50,6 +50,12 @@ if [[ -z "${java_bin}" ]]; then
 	exit 2
 fi
 
+# The runner is dynamically linked to libjsoncpp.so (jsoncpp forces itself shared
+# in protobuf's conformance build). The shared libs are staged next to the binary
+# (in a sibling lib/ dir), so make sure the runtime linker can find them.
+runner_dir="$(cd "$(dirname "${runner}")" && pwd)"
+export LD_LIBRARY_PATH="${runner_dir}/lib:${runner_dir}:${LD_LIBRARY_PATH:-}"
+
 report="${script_dir}/target/conformance-report-${BUFFJSON_PATH}.txt"
 mkdir -p "$(dirname "${report}")"
 

@@ -76,10 +76,14 @@ jobs:
         id: cache-runner
         uses: actions/cache@v4
         with:
-          path: conformance-test-runner/conformance_test_runner
-          # The -static suffix busts the cache for the static-jsoncpp relink (the
-          # previously cached binary dynamically linked libjsoncpp.so).
-          key: ${{ runner.os }}-conformance-runner-${{ env.PROTOBUF_CONFORMANCE_VERSION }}-static
+          # Cache the runner AND its sibling lib/ — jsoncpp forces itself shared in
+          # protobuf's conformance build, so the binary needs libjsoncpp.so at runtime
+          # (see the Build step, which stages it into lib/). Mirrors the upstream
+          # protobuf conformance recipe. The -v2 suffix busts any earlier cache.
+          path: |
+            conformance-test-runner/conformance_test_runner
+            conformance-test-runner/lib
+          key: ${{ runner.os }}-conformance-runner-${{ env.PROTOBUF_CONFORMANCE_VERSION }}-v2
 
       - name: Checkout protobuf ${{ env.PROTOBUF_CONFORMANCE_VERSION }}
         if: steps.cache-runner.outputs.cache-hit != 'true'
@@ -93,22 +97,25 @@ jobs:
       - name: Build conformance_test_runner
         if: steps.cache-runner.outputs.cache-hit != 'true'
         run: |
-          # Two protobuf-v34.x CMake gotchas baked in here:
-          #  1. libprotoc (needed to compile the conformance protos) links libupb
-          #     unconditionally — its Rust generator includes upb reflection headers,
-          #     and the bootstrap google/protobuf/descriptor.upb.h ships under
-          #     upb/reflection/cmake/, an include dir only wired in when libupb is
-          #     built — so we must NOT pass -Dprotobuf_BUILD_LIBUPB=OFF.
-          #  2. BUILD_SHARED_LIBS=OFF makes conformance.cmake link jsoncpp_static
-          #     (vs the shared jsoncpp_lib), yielding a self-contained binary with no
-          #     libjsoncpp.so runtime dependency — so the cached binary runs anywhere.
+          # protobuf v34.x: libprotoc (needed to compile the conformance protos)
+          # links libupb unconditionally — its Rust generator includes upb reflection
+          # headers, and the bootstrap google/protobuf/descriptor.upb.h ships under
+          # upb/reflection/cmake/, an include dir only wired in when libupb is built —
+          # so we must NOT pass -Dprotobuf_BUILD_LIBUPB=OFF. (BUILD_SHARED_LIBS is left
+          # at its default: forcing it OFF makes the FetchContent'd jsoncpp omit the
+          # jsoncpp_lib target that conformance.cmake hard-requires.)
           cmake -S protobuf-src -B conformance-test-runner \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=17 \
-            -DBUILD_SHARED_LIBS=OFF \
             -Dprotobuf_BUILD_CONFORMANCE=ON \
             -Dprotobuf_BUILD_TESTS=OFF
           cmake --build conformance-test-runner --parallel "$(nproc)" --target conformance_test_runner
+          # jsoncpp forces itself shared, so the runner has a libjsoncpp.so runtime
+          # dependency (protobuf/abseil are static). Stage it next to the binary so it
+          # is cached alongside it and found via LD_LIBRARY_PATH at run time.
+          mkdir -p conformance-test-runner/lib
+          find conformance-test-runner -name 'libjsoncpp.so*' -exec cp -a {} conformance-test-runner/lib/ \;
+          echo "Staged shared libs:"; ls -l conformance-test-runner/lib/
 
       - name: Run proto3 JSON conformance suite (codegen, runtime, reflection)
         env:
