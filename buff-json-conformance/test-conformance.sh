@@ -41,16 +41,32 @@ if [[ ! -f "${jar}" ]]; then
 	exit 2
 fi
 
+# The runner exec()s the testee command with execv(), which does NOT search PATH,
+# so the program must be an absolute path — a bare "java" fails with
+# "No such file or directory" and every test reports "unexpected EOF".
+java_bin="$(command -v java || true)"
+if [[ -z "${java_bin}" ]]; then
+	echo "ERROR: java not found on PATH" >&2
+	exit 2
+fi
+
+report="${script_dir}/target/conformance-report-${BUFFJSON_PATH}.txt"
+mkdir -p "$(dirname "${report}")"
+
 echo "Conformance runner: ${runner}"
 echo "Testee jar:         ${jar}"
 echo "Failure list:       ${failure_list}"
 echo "buff-json path:     ${BUFFJSON_PATH}"
+echo "java:               ${java_bin}"
+echo "Report:             ${report}"
 echo
 
-# All runner flags must precede the testee command; everything from `java`
-# onward is passed to the child process verbatim.
-"${runner}" --failure_list "${failure_list}" java -jar "${jar}"
-rc=$?
+# All runner flags must precede the testee command; everything from the java
+# binary onward is passed to the child process verbatim. The runner's full
+# output (failing test names + summary = the failure list) is teed to a report
+# file so CI can upload it as an artifact.
+"${runner}" --failure_list "${failure_list}" "${java_bin}" -jar "${jar}" 2>&1 | tee "${report}"
+rc=${PIPESTATUS[0]}
 
 echo
 if [[ "${enforce}" == "1" ]]; then

@@ -81,8 +81,15 @@ The `conformance` job in `.github/workflows/ci.yml` runs the suite **on a single
 three encode/decode paths are validated against the official corpus. It builds the testee jar once,
 builds + caches `conformance_test_runner` (keyed on `PROTOBUF_CONFORMANCE_VERSION`), then loops
 `BUFFJSON_PATH` over the three values invoking `test-conformance.sh` in report-only mode
-(`ENFORCE_CONFORMANCE=0`). To lock conformance in: review the CI output, add the genuinely
-unsupported test names to `failure_list.txt`, and flip the job to `ENFORCE_CONFORMANCE=1`.
+(`ENFORCE_CONFORMANCE=0`). Each run's full output (failing test names + summary) is teed to
+`target/conformance-report-<path>.txt` and uploaded as the **`conformance-reports`** workflow
+artifact, so the failure list is one download rather than a log scrape. To lock conformance in:
+review the report, add the genuinely unsupported test names to `failure_list.txt`, and flip the
+job to `ENFORCE_CONFORMANCE=1`.
+
+> **Note:** the runner exec's the testee with `execv()` (no `PATH` search), so `test-conformance.sh`
+> passes the **absolute** `java` path (`command -v java`); a bare `java` makes every test report
+> "unexpected EOF from test program".
 
 ## Curating the Failure List
 

@@ -121,3 +121,11 @@ jobs:
             echo "::endgroup::"
           done
           exit $rc
+
+      - name: Upload conformance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-reports
+          path: buff-json-conformance/target/conformance-report-*.txt
+          if-no-files-found: warn
