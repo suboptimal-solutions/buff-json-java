@@ -475,7 +475,8 @@ class BuffJsonProto3ConformanceTest {
 
 		// Edge cases: out-of-range Timestamps are not serializable and must be rejected
 		// on every path (conformance: Required.Proto3.TimestampProto*.JsonOutput). The
-		// valid extremes are covered by timestampFarFuture / timestampFarPast / timestampMaxNanos.
+		// valid extremes are covered by timestampFarFuture / timestampFarPast /
+		// timestampMaxNanos.
 
 		@Test
 		void timestampSecondsTooLarge() {
@@ -547,8 +548,10 @@ class BuffJsonProto3ConformanceTest {
 					.setValue(Duration.newBuilder().setSeconds(-315576000000L).setNanos(0)).build());
 		}
 
-		// Edge cases: out-of-range or wrong-sign Durations are not serializable and must
-		// be rejected on every path (conformance: Required.Proto3.DurationProto*.JsonOutput).
+		// Edge cases: out-of-range or wrong-sign Durations are not serializable and
+		// must
+		// be rejected on every path (conformance:
+		// Required.Proto3.DurationProto*.JsonOutput).
 
 		@Test
 		void durationSecondsTooLarge() {

@@ -106,9 +106,12 @@ class BuffJsonProto3DecodeConformanceTest {
 					.setOptionalBytes(ByteString.copyFrom(new byte[]{0x01, 0x02, 0x03})).build());
 		}
 
-		// Edge case: uint64 may be an unquoted JSON number, not just a quoted string. The max
-		// value 2^64-1 overflows a signed long and is read via BigInteger; its bit pattern is
-		// -1L. (Conformance: Required.Proto3.JsonInput.Uint64FieldMaxValueNotQuoted.) JsonFormat
+		// Edge case: uint64 may be an unquoted JSON number, not just a quoted string.
+		// The max
+		// value 2^64-1 overflows a signed long and is read via BigInteger; its bit
+		// pattern is
+		// -1L. (Conformance: Required.Proto3.JsonInput.Uint64FieldMaxValueNotQuoted.)
+		// JsonFormat
 		// always emits the quoted form, so these hand-write the unquoted JSON.
 
 		@Test
@@ -882,8 +885,10 @@ class BuffJsonProto3DecodeConformanceTest {
 
 		@Test
 		void unknownNestedEnumNumberPreserved() throws Exception {
-			// An unrecognized numeric enum value must round-trip (proto3 open enums preserve it
-			// rather than dropping to 0); JsonFormat prints it as a bare number. (Conformance:
+			// An unrecognized numeric enum value must round-trip (proto3 open enums
+			// preserve it
+			// rather than dropping to 0); JsonFormat prints it as a bare number.
+			// (Conformance:
 			// Required.Proto3.JsonInput.EnumFieldUnknownValue.)
 			assertDecodeMatchesOriginal(TestAllTypesProto3.newBuilder().setOptionalNestedEnumValue(123).build());
 		}

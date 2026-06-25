@@ -12,15 +12,15 @@ pure reflection).
 - `BuffJsonReferenceTest.java` — 5 smoke tests (scalar, default, complex, plus two `DynamicMessage` tests on UTF-16 and UTF-8 paths — `DynamicMessage` is the only thing that exclusively exercises pure reflection in production)
 - `BuffJsonMemoryTest.java` — 8 reachability tests using `WeakReference` + `System.gc()` to confirm the encoder doesn't retain `Message` references after `encode`/`encodeToBytes`/`encode(stream)` on any of the three paths, including `DynamicMessage`. Steady-state allocation regressions are caught separately by `./allocation-check.sh` in CI (JMH `-prof gc`).
 - `BuffJsonCrossPathFuzzTest.java` — seeded-random (reproducible) fuzzer over `TestAllTypesProto3`. `encodePathsAgreeAndAreParseable` asserts **codegen == typed == reflection** byte-for-byte (UTF-16 and UTF-8) over 500 messages — the direct "the three paths agree" guarantee — plus a buff-json self round-trip. `decodePathsRoundTrip` asserts both decode paths reconstruct messages from `JsonFormat`-printed JSON. (It does not byte-compare encode output against `JsonFormat` because fastjson2 and protobuf may format the same float/double differently — both round-trip to the same value; curated byte-equality lives in `BuffJsonProto3ConformanceTest`.)
-- `BuffJsonProto3ConformanceTest.java` — 81 tests in 16 nested classes:
+- `BuffJsonProto3ConformanceTest.java` — proto3 JSON **encode** coverage in nested classes, each `assertMatchesReference` validating all three paths (codegen, typed-accessor, reflection) byte-for-byte against `JsonFormat`; well-known-type groups also carry out-of-range **edge cases** asserting all three paths reject identically:
   - ScalarTypes (13): all types, boundaries, NaN, Infinity, -0.0, unicode, escapes, bytes
   - RepeatedFields (3): all scalar types, empty, single element
   - Enums (3): values, default omission, repeated
   - NestedMessages (4): nested, repeated, empty, recursive (3 levels)
   - OneofFields (7): int/string/bool/message/enum, not set, default with presence
   - MapFields (5): string/int/bool keys, all value types, empty
-  - TimestampTests (5): basic, nanos, full nanos, epoch, pre-epoch
-  - DurationTests (4): basic, nanos, negative, zero
+  - TimestampTests: valid values (nanos precision, epoch, leap year, and the far-past/far-future *valid* extremes 0001-01-01 / 9999-12-31) **plus out-of-range edge cases** — seconds/nanos beyond the spec are rejected on all three paths (`assertAllPathsRejectEncode` → `IllegalArgumentException`; conformance `TimestampProto*.JsonOutput`)
+  - DurationTests: basic/nanos/negative/zero + min/max valid boundary (±315576000000s) **plus out-of-range edge cases** — out-of-range or wrong-sign seconds/nanos are rejected on all three paths (conformance `DurationProto*.JsonOutput`)
   - FieldMaskTests (2): camelCase path joining, empty
   - StructTests (8): struct, nested struct, all Value kinds, list, empty
   - WrapperTests (11): all 9 types, zero with presence, all combined
@@ -32,7 +32,7 @@ pure reflection).
   - ExternalMessages: google.type.* messages (Color, Money, Interval, PostalAddress)
   - OfficialProto3TestMessages: the official `protobuf_test_messages.proto3.TestAllTypesProto3` sample (the same message the conformance_test_runner drives), compared **byte-exact** against `JsonFormat` across all three paths. Covers edge cases the project's own protos don't: multiple distinct enum types per message, a negative enum value (NEG = -1 → name "NEG"), an aliased enum (allow_alias → canonical first name), digit/underscore field names, an interleaved oneof (emitted in field-number order), and a standalone `google.protobuf.NullValue` oneof field (serialized as JSON `null`).
 
-`BuffJsonProto3DecodeConformanceTest.java` mirrors the encode tests for the JSON→protobuf direction (`assertDecodeMatchesOriginal`: JsonFormat.print → BuffJson.decode → equals), including the same `OfficialProto3TestMessages` sample (a JSON `null` round-trips back to a present `NullValue` field).
+`BuffJsonProto3DecodeConformanceTest.java` mirrors the encode tests for the JSON→protobuf direction (`assertDecodeMatchesOriginal`: JsonFormat.print → BuffJson.decode → equals), including the same `OfficialProto3TestMessages` sample (a JSON `null` round-trips back to a present `NullValue` field). Decode-side **edge cases** live alongside the matching groups: `ScalarTypes` hand-writes an *unquoted* max `uint64` (`18446744073709551615` → bit pattern `-1L`; JsonFormat only ever emits the quoted form), and `OfficialProto3TestMessages` round-trips an unrecognized numeric enum value (preserved, not dropped to 0 — conformance `Uint64FieldMaxValueNotQuoted` and `EnumFieldUnknownValue`).
 
 ## Test Pattern
 
