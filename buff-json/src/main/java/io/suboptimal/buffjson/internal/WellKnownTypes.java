@@ -75,6 +75,16 @@ public final class WellKnownTypes {
 
 	static final Base64.Encoder BASE64 = Base64.getEncoder();
 
+	// Valid proto3 ranges for Timestamp/Duration (mirrors com.google.protobuf.util
+	// Timestamps/Durations). Out-of-range values cannot be represented as RFC 3339
+	// /
+	// duration strings, so serialization rejects them rather than emitting garbage.
+	private static final long TIMESTAMP_SECONDS_MIN = -62135596800L; // 0001-01-01T00:00:00Z
+	private static final long TIMESTAMP_SECONDS_MAX = 253402300799L; // 9999-12-31T23:59:59Z
+	private static final long DURATION_SECONDS_MIN = -315576000000L;
+	private static final long DURATION_SECONDS_MAX = 315576000000L;
+	private static final int NANOS_MAX = 999_999_999;
+
 	/**
 	 * Cached field descriptors for well-known types to avoid repeated
 	 * findFieldByName lookups.
@@ -176,6 +186,15 @@ public final class WellKnownTypes {
 	 * encoders that know the field type at generation time.
 	 */
 	public static void writeTimestampDirect(JSONWriter jsonWriter, long seconds, int nanos) {
+		// proto3 spec: out-of-range Timestamps are not serializable (JsonFormat rejects
+		// them too).
+		if (seconds < TIMESTAMP_SECONDS_MIN || seconds > TIMESTAMP_SECONDS_MAX) {
+			throw new IllegalArgumentException("Timestamp seconds out of range [" + TIMESTAMP_SECONDS_MIN + ", "
+					+ TIMESTAMP_SECONDS_MAX + "]: " + seconds);
+		}
+		if (nanos < 0 || nanos > NANOS_MAX) {
+			throw new IllegalArgumentException("Timestamp nanos out of range [0, " + NANOS_MAX + "]: " + nanos);
+		}
 		// Exact-size buffer: "yyyy-MM-ddTHH:mm:ssZ" = 20, +4 millis, +7 micros, +10
 		// nanos
 		int nanosLen = nanosDigitCount(nanos);
@@ -236,6 +255,21 @@ public final class WellKnownTypes {
 	 * generation time.
 	 */
 	public static void writeDurationDirect(JSONWriter jsonWriter, long seconds, int nanos) {
+		// proto3 spec: bounded magnitude, and seconds/nanos must not have opposite
+		// signs
+		// (JsonFormat rejects these too).
+		if (seconds < DURATION_SECONDS_MIN || seconds > DURATION_SECONDS_MAX) {
+			throw new IllegalArgumentException("Duration seconds out of range [" + DURATION_SECONDS_MIN + ", "
+					+ DURATION_SECONDS_MAX + "]: " + seconds);
+		}
+		if (nanos < -NANOS_MAX || nanos > NANOS_MAX) {
+			throw new IllegalArgumentException(
+					"Duration nanos out of range [" + (-NANOS_MAX) + ", " + NANOS_MAX + "]: " + nanos);
+		}
+		if ((seconds < 0 && nanos > 0) || (seconds > 0 && nanos < 0)) {
+			throw new IllegalArgumentException(
+					"Duration seconds and nanos must have the same sign: seconds=" + seconds + ", nanos=" + nanos);
+		}
 		boolean negative = seconds < 0 || nanos < 0;
 		long absSeconds = Math.abs(seconds);
 		int absNanos = Math.abs(nanos);

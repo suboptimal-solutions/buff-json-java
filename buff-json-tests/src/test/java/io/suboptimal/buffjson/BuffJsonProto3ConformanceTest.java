@@ -48,6 +48,18 @@ class BuffJsonProto3ConformanceTest {
 				"Reflection OutputStream mismatch for " + typeName);
 	}
 
+	/**
+	 * Asserts every encode path rejects the message identically with
+	 * {@link IllegalArgumentException}. Used for values that are not serializable
+	 * per the proto3 spec (e.g. out-of-range Timestamp/Duration) — all three paths
+	 * funnel through the same {@code WellKnownTypes} validation.
+	 */
+	private void assertAllPathsRejectEncode(Message message) {
+		assertThrows(IllegalArgumentException.class, () -> CODEGEN_ENCODER.encode(message), "codegen");
+		assertThrows(IllegalArgumentException.class, () -> TYPED_ENCODER.encode(message), "typed-accessor");
+		assertThrows(IllegalArgumentException.class, () -> REFLECTION_ENCODER.encode(message), "reflection");
+	}
+
 	// =========================================================================
 	// Scalar types
 	// =========================================================================
@@ -460,6 +472,36 @@ class BuffJsonProto3ConformanceTest {
 			assertMatchesReference(TestTimestamp.newBuilder()
 					.setValue(Timestamp.newBuilder().setSeconds(1709208000).setNanos(0)).build());
 		}
+
+		// Edge cases: out-of-range Timestamps are not serializable and must be rejected
+		// on every path (conformance: Required.Proto3.TimestampProto*.JsonOutput). The
+		// valid extremes are covered by timestampFarFuture / timestampFarPast / timestampMaxNanos.
+
+		@Test
+		void timestampSecondsTooLarge() {
+			// One second past 9999-12-31T23:59:59Z.
+			assertAllPathsRejectEncode(TestTimestamp.newBuilder()
+					.setValue(Timestamp.newBuilder().setSeconds(253402300800L).setNanos(0)).build());
+		}
+
+		@Test
+		void timestampSecondsTooSmall() {
+			// One second before 0001-01-01T00:00:00Z.
+			assertAllPathsRejectEncode(TestTimestamp.newBuilder()
+					.setValue(Timestamp.newBuilder().setSeconds(-62135596801L).setNanos(0)).build());
+		}
+
+		@Test
+		void timestampNanosTooLarge() {
+			assertAllPathsRejectEncode(TestTimestamp.newBuilder()
+					.setValue(Timestamp.newBuilder().setSeconds(0).setNanos(1_000_000_000)).build());
+		}
+
+		@Test
+		void timestampNegativeNanos() {
+			assertAllPathsRejectEncode(
+					TestTimestamp.newBuilder().setValue(Timestamp.newBuilder().setSeconds(0).setNanos(-1)).build());
+		}
 	}
 
 	// =========================================================================
@@ -490,6 +532,58 @@ class BuffJsonProto3ConformanceTest {
 		void durationZero() throws Exception {
 			assertMatchesReference(
 					TestDuration.newBuilder().setValue(Duration.newBuilder().setSeconds(0).setNanos(0)).build());
+		}
+
+		@Test
+		void durationMaxBoundary() throws Exception {
+			// 315576000000s is the largest serializable Duration (valid extreme).
+			assertMatchesReference(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(315576000000L).setNanos(0)).build());
+		}
+
+		@Test
+		void durationMinBoundary() throws Exception {
+			assertMatchesReference(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(-315576000000L).setNanos(0)).build());
+		}
+
+		// Edge cases: out-of-range or wrong-sign Durations are not serializable and must
+		// be rejected on every path (conformance: Required.Proto3.DurationProto*.JsonOutput).
+
+		@Test
+		void durationSecondsTooLarge() {
+			assertAllPathsRejectEncode(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(315576000001L).setNanos(0)).build());
+		}
+
+		@Test
+		void durationSecondsTooSmall() {
+			assertAllPathsRejectEncode(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(-315576000001L).setNanos(0)).build());
+		}
+
+		@Test
+		void durationNanosTooLarge() {
+			assertAllPathsRejectEncode(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(0).setNanos(1_000_000_000)).build());
+		}
+
+		@Test
+		void durationNanosTooSmall() {
+			assertAllPathsRejectEncode(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(0).setNanos(-1_000_000_000)).build());
+		}
+
+		@Test
+		void durationNanosWrongSignPositiveSecs() {
+			assertAllPathsRejectEncode(
+					TestDuration.newBuilder().setValue(Duration.newBuilder().setSeconds(1).setNanos(-1)).build());
+		}
+
+		@Test
+		void durationNanosWrongSignNegativeSecs() {
+			assertAllPathsRejectEncode(
+					TestDuration.newBuilder().setValue(Duration.newBuilder().setSeconds(-1).setNanos(1)).build());
 		}
 	}
 

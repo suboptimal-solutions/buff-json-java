@@ -107,8 +107,9 @@ JSON.parseObject(json, MyMessage.class);  // uses the reader's settings
 ## Proto3 JSON Spec: Key Gotchas
 
 - **uint32/fixed32**: `Integer.toUnsignedLong()` for unsigned representation
-- **uint64/fixed64**: `Long.toUnsignedString()` for unsigned quoted strings
+- **uint64/fixed64**: `Long.toUnsignedString()` for unsigned quoted strings. On **decode**, both the quoted form and an *unquoted* JSON number up to `2^64-1` are accepted: `FieldReader.readUnsignedLong` parses the quoted form with `Long.parseUnsignedLong`, and the unquoted form via `readBigInteger` + `[0, 2^64)` range check (a plain `readInt64Value()` overflows past `Long.MAX_VALUE`), taking the low 64 bits.
 - **int64 and all 64-bit types**: Must be quoted strings in JSON
+- **Enum unknown numbers**: proto3 open enums preserve an unrecognized numeric value rather than dropping it to 0. The reflection decode path uses `EnumDescriptor.findValueByNumberCreatingIfUnknown` (codegen stores via `setXxxValue(int)`), so the number survives a re-serialization to the wire — matching `JsonFormat`.
 - **NaN/Infinity**: fastjson2 writes `null` — we intercept and write quoted strings
 - **-0.0**: Use `floatToRawIntBits()`/`doubleToRawLongBits()` (not `==`) for default checks
 - **Enum in map values**: `message.getField()` returns `Integer` (not `EnumValueDescriptor`) for map entries
@@ -117,6 +118,7 @@ JSON.parseObject(json, MyMessage.class);  // uses the reader's settings
 - **Struct/Value/ListValue**: Serialize as native JSON objects/arrays/values
 - **`google.protobuf.NullValue`**: Serializes as JSON `null` (not the name `"NULL_VALUE"`) wherever present — oneof/repeated/map/explicit-presence; implicit `NULL_VALUE` (0) is omitted as the default. On decode, a JSON `null` for a NullValue field means `NULL_VALUE` (marks a oneof case as set). Handled in all three paths: codegen, `FieldWriter` (reflection), and the typed enum accessors. Distinct from a `Value`-typed field, where `null` means a wrapped `NullValue`.
 - **Duration nanos**: Format to 3, 6, or 9 digits (not arbitrary precision)
+- **Timestamp/Duration range**: out-of-range values are not representable as RFC 3339 / duration strings, so `writeTimestampDirect`/`writeDurationDirect` validate and throw `IllegalArgumentException` (covers all three encode paths, which all funnel through these). Timestamp: seconds ∈ `[-62135596800, 253402300799]` (0001-01-01 … 9999-12-31), nanos ∈ `[0, 999999999]`. Duration: seconds ∈ `[-315576000000, 315576000000]`, nanos ∈ `[-999999999, 999999999]`, and seconds/nanos must not have opposite signs. Matches `JsonFormat`, which rejects the same inputs.
 - **Any**: Requires TypeRegistry. Regular messages: `{"@type":..., ...fields}`. WKTs: `{"@type":..., "value":...}`
 
 ## Decoder Input Hardening (untrusted JSON)
@@ -131,7 +133,7 @@ The decoder consumes untrusted JSON, so a few defenses are built into the read p
 Errors are split by *who caused them*, so a config bug never masquerades as "bad JSON":
 
 - **User-facing — bad untrusted JSON content → `com.alibaba.fastjson2.JSONException`** (fastjson2's native type), with position context attached via `JSONReader.info(msg)` (appends offset/line/column — note fastjson2 also appends the input document to the message). Callers catch one type for any malformed payload, on **all three paths** (codegen, typed, reflection). Covers: malformed int64/uint64/float/double, timestamp, duration, base64, enum names, numeric map keys, JSON nesting depth, and a malformed/unregistered `@type` the client submitted in an `Any`.
-- **Internal — server config / programmer / unreachable invariants → JDK `IllegalStateException`/`IllegalArgumentException`** (unchanged from fastjson-agnostic behavior). These are *not* driven by untrusted input, so they stay distinguishable. Covers: missing `TypeRegistry` on the encoder or decoder, encode-side `Any` type-resolution/content-parse failures (the server is serializing its own data), a bad target `Class` passed to `decode`, and the unreachable "Unknown well-known type" / "Unsupported map key type" guard arms.
+- **Internal — server config / programmer / unreachable invariants → JDK `IllegalStateException`/`IllegalArgumentException`** (unchanged from fastjson-agnostic behavior). These are *not* driven by untrusted input, so they stay distinguishable. Covers: missing `TypeRegistry` on the encoder or decoder, encode-side `Any` type-resolution/content-parse failures (the server is serializing its own data), encode-side out-of-range `Timestamp`/`Duration` (the server's own message holds an unserializable value — `writeTimestampDirect`/`writeDurationDirect` throw `IllegalArgumentException`), a bad target `Class` passed to `decode`, and the unreachable "Unknown well-known type" / "Unsupported map key type" guard arms.
 
 Implementation:
 

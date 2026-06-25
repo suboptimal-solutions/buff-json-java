@@ -111,7 +111,18 @@ public final class FieldReader {
 				throw new JSONException(reader.info("Invalid uint64 value"), e);
 			}
 		}
-		return reader.readInt64Value();
+		// Unquoted number form: uint64 values in (Long.MAX_VALUE, 2^64) are valid but
+		// overflow
+		// readInt64Value(). Read as BigInteger, enforce the [0, 2^64) range, then take
+		// the low 64
+		// bits (the two's-complement unsigned representation). The canonical proto3
+		// form quotes
+		// int64/uint64, so this branch is only reached for non-canonical numeric input.
+		java.math.BigInteger value = reader.readBigInteger();
+		if (value.signum() < 0 || value.bitLength() > 64) {
+			throw new JSONException(reader.info("Invalid uint64 value: " + value));
+		}
+		return value.longValue();
 	}
 
 	/**
@@ -161,13 +172,15 @@ public final class FieldReader {
 			return enumValueByName(reader, fd.getEnumType(), reader.readString());
 		}
 		int number = reader.readInt32Value();
-		EnumValueDescriptor evd = fd.getEnumType().findValueByNumber(number);
-		if (evd != null) {
-			return evd;
-		}
-		// Unrecognized enum number — return the default value (proto3 behavior)
-		// The generic path using setField() can't represent unrecognized enums
-		return fd.getEnumType().findValueByNumber(0);
+		// proto3 open enums preserve unrecognized numbers.
+		// findValueByNumberCreatingIfUnknown
+		// returns the declared value when present, or a placeholder descriptor carrying
+		// the raw
+		// number — which setField()/addRepeatedField() retain so it survives a
+		// re-serialization
+		// to the wire. Matches JsonFormat and the codegen path (which stores via
+		// setXxxValue(int)).
+		return fd.getEnumType().findValueByNumberCreatingIfUnknown(number);
 	}
 
 	/**
