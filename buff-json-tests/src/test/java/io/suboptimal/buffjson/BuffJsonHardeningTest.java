@@ -200,11 +200,23 @@ class BuffJsonHardeningTest {
 		}
 
 		@Test
-		void emptyTypeUrlFirstYieldsDefault() {
-			// @type present but empty, with trailing content — degrades to default Any.
+		void emptyTypeUrlFirstRejected() {
+			// Fast path: @type present but empty, with trailing content. A non-empty Any
+			// object needs a resolvable @type, so this is rejected on both paths (it was
+			// previously accepted as a default Any). Conformance:
+			// Required.Proto3.JsonInput.AnyWktRepresentationWithEmptyTypeAndValue.
 			String json = "{\"value\":{\"@type\":\"\",\"optionalInt32\":42}}";
-			TestAny expected = TestAny.newBuilder().setValue(Any.getDefaultInstance()).build();
-			assertBothPaths(json, expected);
+			assertThrows(JSONException.class, () -> CODEGEN.decode(json, TestAny.class), "codegen, json=" + json);
+			assertThrows(JSONException.class, () -> RUNTIME.decode(json, TestAny.class), "runtime, json=" + json);
+		}
+
+		@Test
+		void missingTypeUrlWithContentRejected() {
+			// Slow path: content present but @type entirely absent — unresolvable, so
+			// rejected on both paths (mirrors protobuf's "Missing type url").
+			String json = "{\"value\":{\"optionalInt32\":42}}";
+			assertThrows(JSONException.class, () -> CODEGEN.decode(json, TestAny.class), "codegen, json=" + json);
+			assertThrows(JSONException.class, () -> RUNTIME.decode(json, TestAny.class), "runtime, json=" + json);
 		}
 	}
 

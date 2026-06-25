@@ -594,8 +594,11 @@ public final class WellKnownTypes {
 		String rfc3339 = reader.readString();
 		try {
 			return parseTimestamp(rfc3339);
-		} catch (DateTimeParseException e) {
-			// Normalize to JSONException and attach position context via reader.info(...).
+		} catch (DateTimeParseException | IllegalArgumentException e) {
+			// DateTimeParseException: malformed RFC 3339. IllegalArgumentException: the
+			// parsed instant is outside the proto3 Timestamp range (see parseTimestamp).
+			// Both are rejected at parse time. Normalize to JSONException and attach
+			// position context via reader.info(...).
 			throw new JSONException(reader.info("Invalid RFC 3339 timestamp for google.protobuf.Timestamp"), e);
 		}
 	}
@@ -616,7 +619,15 @@ public final class WellKnownTypes {
 
 	static Timestamp parseTimestamp(String rfc3339) {
 		Instant instant = Instant.parse(rfc3339);
-		return Timestamp.newBuilder().setSeconds(instant.getEpochSecond()).setNanos(instant.getNano()).build();
+		long seconds = instant.getEpochSecond();
+		// proto3 spec: Timestamps outside [0001-01-01, 9999-12-31] are invalid. Reject
+		// at parse time so the failure is a clean parse error (not a deferred serialize
+		// error). Two long comparisons on an already-parsed value — no allocation.
+		if (seconds < TIMESTAMP_SECONDS_MIN || seconds > TIMESTAMP_SECONDS_MAX) {
+			throw new IllegalArgumentException("Timestamp seconds out of range [" + TIMESTAMP_SECONDS_MIN + ", "
+					+ TIMESTAMP_SECONDS_MAX + "]: " + seconds);
+		}
+		return Timestamp.newBuilder().setSeconds(seconds).setNanos(instant.getNano()).build();
 	}
 
 	static Duration parseDuration(String s) {
@@ -647,6 +658,14 @@ public final class WellKnownTypes {
 			if (nanos != 0) {
 				nanos = -nanos;
 			}
+		}
+		// proto3 spec: Durations outside ±315,576,000,000s are invalid. Reject at parse
+		// time (matching writeDurationDirect's serialize-side guard) so the failure is
+		// a
+		// clean parse error. Two long comparisons — no allocation.
+		if (seconds < DURATION_SECONDS_MIN || seconds > DURATION_SECONDS_MAX) {
+			throw new IllegalArgumentException("Duration seconds out of range [" + DURATION_SECONDS_MIN + ", "
+					+ DURATION_SECONDS_MAX + "]: " + seconds);
 		}
 		return Duration.newBuilder().setSeconds(seconds).setNanos(nanos).build();
 	}
@@ -739,8 +758,10 @@ public final class WellKnownTypes {
 		if ("@type".equals(firstKey)) {
 			String typeUrl = reader.readString();
 			if (typeUrl == null || typeUrl.isEmpty()) {
-				skipToObjectEnd(reader);
-				return Any.getDefaultInstance();
+				// proto3: a non-empty Any object must carry a resolvable @type. An empty
+				// "@type" is unresolvable — only a bare {} is a valid typeless Any (handled
+				// above) — so reject rather than silently producing a default Any.
+				throw new JSONException(reader.info("Any @type must not be empty"));
 			}
 			Descriptor type = resolveAnyType(reader, typeUrl, msgReader);
 			Message content = isWellKnownType(type)
@@ -767,7 +788,10 @@ public final class WellKnownTypes {
 		}
 
 		if (typeUrl == null || typeUrl.isEmpty()) {
-			return Any.getDefaultInstance();
+			// Reaching the slow path means we already read a non-@type field, so the
+			// object is non-empty; a missing or empty @type leaves it unresolvable and is
+			// rejected (mirrors the fast-path rule and protobuf's reference parser).
+			throw new JSONException(reader.info("Any with content requires a non-empty @type"));
 		}
 
 		Descriptor type = resolveAnyType(reader, typeUrl, msgReader);
@@ -863,20 +887,6 @@ public final class WellKnownTypes {
 			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
 		}
 		return DynamicMessage.getDefaultInstance(type);
-	}
-
-	/**
-	 * Skips any remaining entries of the current JSON object and consumes its
-	 * closing brace. fastjson2 has no single "skip rest of object" call, so this
-	 * uses its {@code skipName()}/{@code skipValue()} pair — the same idiom
-	 * fastjson2 applies internally — where {@code skipName()} advances past the key
-	 * and colon without materializing the (discarded) key String.
-	 */
-	private static void skipToObjectEnd(JSONReader reader) {
-		while (!reader.nextIfObjectEnd()) {
-			reader.skipName();
-			reader.skipValue();
-		}
 	}
 
 	/**

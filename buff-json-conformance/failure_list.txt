@@ -12,14 +12,27 @@
 #   Required.Proto3.ProtobufInput.<case>.JsonOutput
 #
 # Curation status: encode-side gaps and the silent-data-corruption decode gaps
-# (int32/uint32/string strictness, wrong repeated element types) are FIXED, so
-# they are not listed. The entries below are decoder-leniency cases where the
-# accepted value is *correct* — only the input representation is non-canonical —
-# so rejecting them would be pure spec-pedantry at the cost of raw-token
-# inspection fastjson2 doesn't cleanly expose. Remaining "wrong but recognizable"
-# decode gaps (float/double out-of-range, top-level null, duplicate oneof,
-# out-of-range Timestamp/Duration JSON input) are intentionally NOT listed yet —
-# they are slated to be fixed, which is why ENFORCE_CONFORMANCE stays 0 for now.
+# (int32/uint32/string strictness, wrong repeated element types, top-level null,
+# out-of-range Timestamp/Duration JSON input, empty Any @type) are FIXED, so they
+# are not listed. The entries below are inputs buff-json intentionally does NOT
+# reject — the decoded value is recognizable/correct and rejecting would cost more
+# than the gap is worth. With these listed, the suite has no UNEXPECTED failures,
+# so ENFORCE_CONFORMANCE can be flipped to 1 to gate CI on conformance.
+
+# --- Tier 2: lenient acceptance — recognizable value decoded, rejection skipped ---
+# Float/double JSON numbers that overflow the type are accepted as +/-Infinity
+# rather than rejected. The overflow->Infinity mapping round-trips, and rejecting
+# would add an isInfinite() guard to every float/double parse for a non-canonical
+# input — treated as normal lenient behaviour.
+Required.Proto3.JsonInput.FloatFieldTooLarge
+Required.Proto3.JsonInput.FloatFieldTooSmall
+Required.Proto3.JsonInput.DoubleFieldTooLarge
+Required.Proto3.JsonInput.DoubleFieldTooSmall
+# Duplicate members of the same oneof (e.g. {"oneofUint32":1,"oneofString":"test"})
+# are accepted last-wins rather than rejected. Detecting duplicates requires
+# per-oneof "already seen" state threaded through both decode paths and the
+# codegen DecoderGenerator — too invasive for a single non-canonical case.
+Required.Proto3.JsonInput.OneofFieldDuplicate
 
 # --- Tier 3: non-canonical representation, value decoded is correct ---
 # Integer accepted with a leading zero / plus sign (e.g. "01", "+1", "-01") — the

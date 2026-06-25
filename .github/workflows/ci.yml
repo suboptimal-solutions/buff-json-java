@@ -49,9 +49,9 @@ jobs:
     # conformance_test_runner is built from protobuf source (matching our
     # protobuf-java version) via CMake and cached by version.
     #
-    # Currently report-only (ENFORCE_CONFORMANCE=0): the runner prints any
-    # failures but does not fail the build while failure_list.txt is curated.
-    # Flip ENFORCE_CONFORMANCE to "1" (and populate the failure list) to gate.
+    # Enforced (ENFORCE_CONFORMANCE=1): the suite gates the build. failure_list.txt
+    # is curated, so the runner must report zero UNEXPECTED failures (and zero
+    # listed tests that unexpectedly pass) on every path, or this job fails.
     name: Conformance (proto3 JSON)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -119,7 +119,7 @@ jobs:
 
       - name: Run proto3 JSON conformance suite (codegen, runtime, reflection)
         env:
-          ENFORCE_CONFORMANCE: "0"
+          ENFORCE_CONFORMANCE: "1"
         run: |
           runner="$(find "$PWD/conformance-test-runner" -name conformance_test_runner -type f | head -1)"
           if [ -z "$runner" ]; then

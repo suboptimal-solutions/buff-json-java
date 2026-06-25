@@ -434,6 +434,22 @@ class BuffJsonProto3DecodeConformanceTest {
 			assertDecodeMatchesOriginal(
 					TestTimestamp.newBuilder().setValue(Timestamp.newBuilder().setSeconds(0).setNanos(0)).build());
 		}
+
+		@Test
+		void timestampMinBoundaryAccepted() throws Exception {
+			// 0001-01-01T00:00:00Z is the proto3 minimum — must still round-trip (no
+			// over-rejection from the new parse-time range guard).
+			assertDecodeMatchesOriginal(TestTimestamp.newBuilder()
+					.setValue(Timestamp.newBuilder().setSeconds(-62135596800L).setNanos(0)).build());
+		}
+
+		@Test
+		void timestampBelowMinRejected() {
+			// 0000-01-01T00:00:00Z parses as a valid RFC 3339 instant but is below the
+			// proto3 Timestamp minimum (0001-01-01). Rejected at parse time on both
+			// paths. Conformance: Required.Proto3.JsonInput.TimestampJsonInputTooSmall.
+			assertBothPathsReject("{\"value\":\"0000-01-01T00:00:00Z\"}", TestTimestamp.class);
+		}
 	}
 
 	// =========================================================================
@@ -464,6 +480,28 @@ class BuffJsonProto3DecodeConformanceTest {
 		void durationZero() throws Exception {
 			assertDecodeMatchesOriginal(
 					TestDuration.newBuilder().setValue(Duration.newBuilder().setSeconds(0).setNanos(0)).build());
+		}
+
+		@Test
+		void durationMaxBoundaryAccepted() throws Exception {
+			// The exact proto3 maximum (±315576000000s) must still round-trip (no
+			// over-rejection from the new parse-time range guard).
+			assertDecodeMatchesOriginal(TestDuration.newBuilder()
+					.setValue(Duration.newBuilder().setSeconds(315576000000L).setNanos(0)).build());
+		}
+
+		@Test
+		void durationBelowMinRejected() {
+			// One second below the proto3 Duration minimum (-315576000000s). Rejected at
+			// parse time. Conformance: Required.Proto3.JsonInput.DurationJsonInputTooSmall.
+			assertBothPathsReject("{\"value\":\"-315576000001.000000000s\"}", TestDuration.class);
+		}
+
+		@Test
+		void durationAboveMaxRejected() {
+			// One second above the proto3 Duration maximum (315576000000s). Rejected at
+			// parse time. Conformance: Required.Proto3.JsonInput.DurationJsonInputTooLarge.
+			assertBothPathsReject("{\"value\":\"315576000001.000000000s\"}", TestDuration.class);
 		}
 	}
 
@@ -713,6 +751,26 @@ class BuffJsonProto3DecodeConformanceTest {
 		@Test
 		void emptyAny() throws Exception {
 			assertAnyDecodeMatchesOriginal(TestAny.getDefaultInstance());
+		}
+
+		@Test
+		void anyWithEmptyTypeAndValueRejected() {
+			// An empty "@type" is unresolvable; only a bare {} is a valid typeless Any, so
+			// a non-empty Any object with empty @type is rejected on both decode paths.
+			// Conformance:
+			// Required.Proto3.JsonInput.AnyWktRepresentationWithEmptyTypeAndValue.
+			String json = "{\"value\": {\"@type\": \"\", \"value\": \"\"}}";
+			assertThrows(JSONException.class, () -> DECODER.decode(json, TestAny.class),
+					"codegen should reject empty @type");
+			assertThrows(JSONException.class, () -> RUNTIME_ANY_DECODER.decode(json, TestAny.class),
+					"runtime should reject empty @type");
+		}
+
+		@Test
+		void emptyAnyObjectAccepted() throws Exception {
+			// A bare {} for the Any field is the valid typeless empty Any — must NOT be
+			// rejected by the empty-@type guard (round-trips to a default Any).
+			assertAnyDecodeMatchesOriginal(TestAny.newBuilder().setValue(Any.getDefaultInstance()).build());
 		}
 
 		@Test

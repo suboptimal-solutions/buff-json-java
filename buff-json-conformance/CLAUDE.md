@@ -41,7 +41,8 @@ killing the long-lived process.
 - `src/main/java/.../ConformanceTestee.java` — the testee main + `handle()` dispatch
 - `src/main/protobuf/conformance.proto` — vendored from protobuf `v34.1` (the runner protocol)
 - `src/main/protobuf/google/protobuf/test_messages_proto3.proto` — vendored from protobuf `v34.1`
-- `failure_list.txt` — tests buff-json is expected to fail (empty until curated from a CI run)
+- `failure_list.txt` — tests buff-json is expected to fail (curated; Tier 2 = intentional lenient
+  acceptance, Tier 3 = non-canonical representation whose decoded value is correct)
 - `test-conformance.sh` — runs the runner against the shaded testee jar
 
 ## Running Locally
@@ -80,12 +81,14 @@ The `conformance` job in `.github/workflows/ci.yml` runs the suite **on a single
 (`ubuntu-latest`), once **per buff-json path** — `codegen`, `runtime`, and `reflection` — so all
 three encode/decode paths are validated against the official corpus. It builds the testee jar once,
 builds + caches `conformance_test_runner` (keyed on `PROTOBUF_CONFORMANCE_VERSION`), then loops
-`BUFFJSON_PATH` over the three values invoking `test-conformance.sh` in report-only mode
-(`ENFORCE_CONFORMANCE=0`). Each run's full output (failing test names + summary) is teed to
+`BUFFJSON_PATH` over the three values invoking `test-conformance.sh` in **enforced** mode
+(`ENFORCE_CONFORMANCE=1`): `failure_list.txt` is curated, so the job **fails** if any path reports
+an unexpected failure (a non-listed `Required` test that fails) or an unexpected success (a listed
+test that passes). Each run's full output (failing test names + summary) is still teed to
 `target/conformance-report-<path>.txt` and uploaded as the **`conformance-reports`** workflow
-artifact, so the failure list is one download rather than a log scrape. To lock conformance in:
-review the report, add the genuinely unsupported test names to `failure_list.txt`, and flip the
-job to `ENFORCE_CONFORMANCE=1`.
+artifact, so a failure is one download rather than a log scrape. When a future fix makes a listed
+test pass, prune it from `failure_list.txt`; when a new genuine gap appears, add it (with a comment)
+or fix it.
 
 > **Note:** the runner exec's the testee with `execv()` (no `PATH` search), so `test-conformance.sh`
 > passes the **absolute** `java` path (`command -v java`); a bare `java` makes every test report
