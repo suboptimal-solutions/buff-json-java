@@ -6,12 +6,29 @@
 # that unexpectedly *passes* is reported as an error (so prune entries as they
 # get fixed).
 #
-# This list is intentionally empty for the first run. CI runs the suite in
-# report-only mode (ENFORCE_CONFORMANCE=0), so the build does not fail; review
-# the runner output in the CI logs, then add the genuinely-unsupported test
-# names here and flip the job to ENFORCE_CONFORMANCE=1 to lock conformance in.
-#
 # Test name format (proto3 JSON only):
 #   Required.Proto3.JsonInput.<case>.<OutputFormat>
 #   Recommended.Proto3.JsonInput.<case>.<OutputFormat>
 #   Required.Proto3.ProtobufInput.<case>.JsonOutput
+#
+# Curation status: encode-side gaps and the silent-data-corruption decode gaps
+# (int32/uint32/string strictness, wrong repeated element types) are FIXED, so
+# they are not listed. The entries below are decoder-leniency cases where the
+# accepted value is *correct* — only the input representation is non-canonical —
+# so rejecting them would be pure spec-pedantry at the cost of raw-token
+# inspection fastjson2 doesn't cleanly expose. Remaining "wrong but recognizable"
+# decode gaps (float/double out-of-range, top-level null, duplicate oneof,
+# out-of-range Timestamp/Duration JSON input) are intentionally NOT listed yet —
+# they are slated to be fixed, which is why ENFORCE_CONFORMANCE stays 0 for now.
+
+# --- Tier 3: non-canonical representation, value decoded is correct ---
+# Integer accepted with a leading zero / plus sign (e.g. "01", "+1", "-01") — the
+# parsed value is right (1, 1, -1); rejecting requires inspecting the raw number
+# token, which fastjson2's lenient lexer has already normalized away.
+Required.Proto3.JsonInput.Int32FieldLeadingZero
+Required.Proto3.JsonInput.Int32FieldNegativeWithLeadingZero
+Required.Proto3.JsonInput.Int32FieldPlusSign
+# RFC 3339 timestamp accepted with a lowercase 't'/'z' separator — the parsed
+# instant is correct; the spec mandates uppercase 'T'/'Z'.
+Required.Proto3.JsonInput.TimestampJsonInputLowercaseT
+Required.Proto3.JsonInput.TimestampJsonInputLowercaseZ

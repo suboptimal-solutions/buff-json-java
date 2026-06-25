@@ -50,7 +50,7 @@ public final class FieldReader {
 			case FLOAT -> readFloatValue(reader);
 			case DOUBLE -> readDoubleValue(reader);
 			case BOOLEAN -> reader.readBoolValue();
-			case STRING -> reader.readString();
+			case STRING -> readStrictString(reader);
 			case BYTE_STRING -> readBytes(reader);
 			case ENUM -> readEnumValue(reader, fd);
 			case MESSAGE -> readMessageValue(reader, fd, msgReader);
@@ -74,10 +74,104 @@ public final class FieldReader {
 	private static int readIntValue(JSONReader reader, FieldDescriptor fd) {
 		var type = fd.getType();
 		if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32) {
-			// Unsigned: can be up to 4294967295, exceeds signed int range
-			return (int) reader.readInt64Value();
+			return readStrictUint32(reader);
 		}
-		return reader.readInt32Value();
+		return readStrictInt32(reader);
+	}
+
+	/**
+	 * Reads a proto3 int32, enforcing the JSON spec rather than coercing. Accepts
+	 * an integer JSON number or a quoted integer string; rejects non-integral
+	 * numbers ({@code 1.5}), out-of-range values, malformed/empty strings, and
+	 * wrong JSON types (bool/object/array) with a {@link JSONException}. Integral
+	 * floats ({@code 2.0}, {@code 1e2}) are accepted per the spec. Public so
+	 * generated decoders (in other packages) can call it.
+	 */
+	public static int readStrictInt32(JSONReader reader) {
+		return (int) readStrictIntegral(reader, Integer.MIN_VALUE, Integer.MAX_VALUE, "int32");
+	}
+
+	/**
+	 * Reads a proto3 uint32/fixed32 (valid range {@code [0, 2^32)}), stored as a
+	 * signed int. Same strictness as {@link #readStrictInt32}. Public so generated
+	 * decoders (in other packages) can call it.
+	 */
+	public static int readStrictUint32(JSONReader reader) {
+		return (int) readStrictIntegral(reader, 0L, 0xFFFF_FFFFL, "uint32");
+	}
+
+	/**
+	 * Shared strict integral read for 32-bit fields. The caller has already
+	 * consumed any JSON {@code null} (scalar/repeated/map readers null-check
+	 * first), so the token here is the value itself.
+	 */
+	private static long readStrictIntegral(JSONReader reader, long min, long max, String name) {
+		if (reader.isNumber()) {
+			// Zero-alloc fast path (the canonical 32-bit form is a bare JSON number): every
+			// in-range value is exactly representable as a double (|max| < 2^53), so a
+			// primitive readDoubleValue() lets us detect a fractional part (reject 1.5,
+			// accept
+			// 2.0/1e2) and range-check — no boxing, no BigDecimal. isNumber() is false for
+			// bool/object/array, so those wrong types are rejected below without any read.
+			// (NB: reader.isInt() can't be used to gate this — it's true for 1.5 too.)
+			double d = reader.readDoubleValue();
+			if (!Double.isFinite(d) || d != Math.rint(d)) {
+				throw new JSONException(reader.info("Invalid " + name + " value (not an integer): " + d));
+			}
+			if (d < min || d > max) {
+				throw new JSONException(reader.info(name + " value out of range: " + d));
+			}
+			return (long) d;
+		}
+		if (reader.isString()) {
+			// Non-canonical quoted form (e.g. "42"); rare for 32-bit, so a BigDecimal parse
+			// is
+			// acceptable here.
+			long value = parseStrictIntegralString(reader, reader.readString(), name);
+			if (value < min || value > max) {
+				throw new JSONException(reader.info(name + " value out of range: " + value));
+			}
+			return value;
+		}
+		// bool / object / array where an integer was expected.
+		throw new JSONException(reader.info("Invalid " + name + " value (expected an integer)"));
+	}
+
+	/**
+	 * Parses the quoted-string form of an integer, rejecting empty/non-integer
+	 * text. The plain-integer case ({@code "42"}) takes the zero-alloc
+	 * {@code Long.parseLong} fast path; only a float-formatted integer string
+	 * ({@code "2.0"}, {@code "1e2"}) — which JSON doesn't distinguish from
+	 * {@code 2} — falls back to {@code BigDecimal} to accept it iff integrally
+	 * valued (rejecting {@code "1.5"}). Mirrors protobuf-java's
+	 * {@code Integer.parseInt} → {@code BigDecimal.intValueExact} parser.
+	 */
+	private static long parseStrictIntegralString(JSONReader reader, String s, String name) {
+		if (s.isEmpty()) {
+			throw new JSONException(reader.info("Invalid " + name + " value (empty string)"));
+		}
+		try {
+			return Long.parseLong(s);
+		} catch (NumberFormatException notPlainInteger) {
+			try {
+				return new java.math.BigDecimal(s).longValueExact();
+			} catch (NumberFormatException | ArithmeticException e) {
+				throw new JSONException(reader.info("Invalid " + name + " value: \"" + s + "\""), e);
+			}
+		}
+	}
+
+	/**
+	 * Reads a proto3 string field, rejecting non-string JSON tokens (number, bool,
+	 * object, array) rather than coercing them with a {@code toString()}. The
+	 * caller has already consumed any JSON {@code null}. Public so generated
+	 * decoders (in other packages) can call it.
+	 */
+	public static String readStrictString(JSONReader reader) {
+		if (!reader.isString()) {
+			throw new JSONException(reader.info("Invalid string value (expected a JSON string)"));
+		}
+		return reader.readString();
 	}
 
 	private static long readLongValue(JSONReader reader, FieldDescriptor fd) {

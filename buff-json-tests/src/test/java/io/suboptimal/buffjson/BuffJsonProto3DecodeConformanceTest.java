@@ -2,6 +2,7 @@ package io.suboptimal.buffjson;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.alibaba.fastjson2.JSONException;
 import com.google.protobuf.*;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf_test_messages.proto3.TestMessagesProto3.ForeignEnum;
@@ -35,6 +36,16 @@ class BuffJsonProto3DecodeConformanceTest {
 		// Test runtime path
 		T runtime = RUNTIME_DECODER.decode(json, clazz);
 		assertEquals(original, runtime, "Runtime mismatch for " + typeName + " json=" + json);
+	}
+
+	/**
+	 * Asserts that malformed JSON is rejected with {@link JSONException} on both
+	 * decode paths (codegen + runtime). Used for proto3 strictness edge cases where
+	 * lenient acceptance would silently corrupt data.
+	 */
+	private void assertBothPathsReject(String json, Class<? extends Message> clazz) {
+		assertThrows(JSONException.class, () -> CODEGEN_DECODER.decode(json, clazz), "codegen should reject: " + json);
+		assertThrows(JSONException.class, () -> RUNTIME_DECODER.decode(json, clazz), "runtime should reject: " + json);
 	}
 
 	// =========================================================================
@@ -134,6 +145,75 @@ class BuffJsonProto3DecodeConformanceTest {
 			assertEquals(42L, CODEGEN_DECODER.decode(json, TestAllScalars.class).getOptionalUint64(), "codegen");
 			assertEquals(42L, RUNTIME_DECODER.decode(json, TestAllScalars.class).getOptionalUint64(), "runtime");
 		}
+
+		// Edge cases: strict proto3 scalar parsing — lenient acceptance here would
+		// silently
+		// corrupt data (truncate, overflow, or coerce a wrong type to a plausible
+		// value), so
+		// both decode paths must reject. (Conformance:
+		// Int32/Uint32Field{NotInteger,NotNumber,
+		// EmptyString,TooLarge}, StringFieldNotAString.)
+
+		@Test
+		void int32RejectsNonInteger() {
+			assertBothPathsReject("{\"optionalInt32\":1.5}", TestAllScalars.class);
+		}
+
+		@Test
+		void int32RejectsEmptyString() {
+			assertBothPathsReject("{\"optionalInt32\":\"\"}", TestAllScalars.class);
+		}
+
+		@Test
+		void int32RejectsWrongType() {
+			assertBothPathsReject("{\"optionalInt32\":true}", TestAllScalars.class);
+			assertBothPathsReject("{\"optionalInt32\":\"abc\"}", TestAllScalars.class);
+		}
+
+		@Test
+		void int32RejectsOutOfRange() {
+			assertBothPathsReject("{\"optionalInt32\":2147483648}", TestAllScalars.class); // max + 1
+		}
+
+		@Test
+		void uint32RejectsTooLarge() {
+			assertBothPathsReject("{\"optionalUint32\":4294967296}", TestAllScalars.class); // 2^32
+		}
+
+		@Test
+		void uint32RejectsNegative() {
+			assertBothPathsReject("{\"optionalUint32\":-1}", TestAllScalars.class);
+		}
+
+		@Test
+		void stringRejectsNonString() {
+			assertBothPathsReject("{\"optionalString\":123}", TestAllScalars.class);
+			assertBothPathsReject("{\"optionalString\":true}", TestAllScalars.class);
+		}
+
+		// Don't over-reject: the strict reader must still accept the valid forms proto3
+		// allows.
+
+		@Test
+		void int32AcceptsIntegralFloatAndQuotedString() throws Exception {
+			// 2.0 (integral float) and "42" (quoted integer string) are both valid for
+			// int32.
+			assertEquals(2, CODEGEN_DECODER.decode("{\"optionalInt32\":2.0}", TestAllScalars.class).getOptionalInt32());
+			assertEquals(2, RUNTIME_DECODER.decode("{\"optionalInt32\":2.0}", TestAllScalars.class).getOptionalInt32());
+			assertEquals(42,
+					CODEGEN_DECODER.decode("{\"optionalInt32\":\"42\"}", TestAllScalars.class).getOptionalInt32());
+			assertEquals(42,
+					RUNTIME_DECODER.decode("{\"optionalInt32\":\"42\"}", TestAllScalars.class).getOptionalInt32());
+		}
+
+		@Test
+		void uint32AcceptsMax() throws Exception {
+			// 4294967295 = 2^32-1 is the valid max; its signed-int bit pattern is -1.
+			assertEquals(-1, CODEGEN_DECODER.decode("{\"optionalUint32\":4294967295}", TestAllScalars.class)
+					.getOptionalUint32());
+			assertEquals(-1, RUNTIME_DECODER.decode("{\"optionalUint32\":4294967295}", TestAllScalars.class)
+					.getOptionalUint32());
+		}
 	}
 
 	// =========================================================================
@@ -162,6 +242,26 @@ class BuffJsonProto3DecodeConformanceTest {
 		@Test
 		void singleElementRepeated() throws Exception {
 			assertDecodeMatchesOriginal(TestRepeatedScalars.newBuilder().addRepeatedInt32(42).build());
+		}
+
+		// Edge cases: a repeated element of the wrong JSON type must be rejected, not
+		// coerced
+		// (the per-element read goes through the same strict scalar readers).
+		// (Conformance:
+		// RepeatedFieldWrongElementTypeExpecting{Integers,Strings}Got{Bool,Int,Message}.)
+
+		@Test
+		void repeatedIntRejectsWrongElementType() {
+			assertBothPathsReject("{\"repeatedInt32\":[true]}", TestRepeatedScalars.class);
+			assertBothPathsReject("{\"repeatedInt32\":[{}]}", TestRepeatedScalars.class);
+			assertBothPathsReject("{\"repeatedInt32\":[1.5]}", TestRepeatedScalars.class);
+		}
+
+		@Test
+		void repeatedStringRejectsWrongElementType() {
+			assertBothPathsReject("{\"repeatedString\":[123]}", TestRepeatedScalars.class);
+			assertBothPathsReject("{\"repeatedString\":[true]}", TestRepeatedScalars.class);
+			assertBothPathsReject("{\"repeatedString\":[{}]}", TestRepeatedScalars.class);
 		}
 	}
 

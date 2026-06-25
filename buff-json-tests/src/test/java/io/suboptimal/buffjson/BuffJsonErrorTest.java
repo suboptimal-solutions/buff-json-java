@@ -68,10 +68,12 @@ class BuffJsonErrorTest {
 		}
 
 		@Test
-		void nullLiteralReturnsNull() {
-			// fastjson2 returns null for JSON null literal
-			TestAllScalars msg = DECODER.decode("null", TestAllScalars.class);
-			assertNull(msg);
+		void topLevelNullThrows() {
+			// proto3 JSON: a message is never representable as a bare top-level null —
+			// reject
+			// it (conformance: Required.Proto3.JsonInput.RejectTopLevelNull). Empty input
+			// (see emptyStringReturnsNull) is a separate, lenient convenience.
+			assertDecodeThrows("null", TestAllScalars.class);
 		}
 
 		@Test
@@ -98,18 +100,16 @@ class BuffJsonErrorTest {
 		}
 
 		@Test
-		void objectForStringCoercesLeniently() {
-			// fastjson2 coerces objects to string (JSON-encodes the value) — lenient
-			TestAllScalars msg = DECODER.decode("{\"optionalString\": {\"nested\": true}}", TestAllScalars.class);
-			assertNotNull(msg.getOptionalString());
-			assertFalse(msg.getOptionalString().isEmpty());
+		void objectForStringThrows() {
+			// proto3 strict: a non-string token for a string field is rejected, not
+			// coerced.
+			assertDecodeThrows("{\"optionalString\": {\"nested\": true}}", TestAllScalars.class);
 		}
 
 		@Test
-		void boolForIntCoercesLeniently() {
-			// fastjson2 coerces bool to int (true→1, false→0) — lenient
-			TestAllScalars msg = DECODER.decode("{\"optionalInt32\": true}", TestAllScalars.class);
-			assertEquals(1, msg.getOptionalInt32());
+		void boolForIntThrows() {
+			// proto3 strict: a bool for an int field is rejected, not coerced (true→1).
+			assertDecodeThrows("{\"optionalInt32\": true}", TestAllScalars.class);
 		}
 
 		@Test

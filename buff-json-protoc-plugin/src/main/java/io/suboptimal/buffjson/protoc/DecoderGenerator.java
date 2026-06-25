@@ -207,11 +207,13 @@ final class DecoderGenerator {
 			case INT -> {
 				var type = fd.getType();
 				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32) {
-					sb.append(indent).append(prefix).append("((int) reader.readInt64Value()").append(closeSuffix)
-							.append(");\n");
+					sb.append(indent).append(prefix)
+							.append("(io.suboptimal.buffjson.internal.FieldReader.readStrictUint32(reader)")
+							.append(closeSuffix).append(");\n");
 				} else {
-					sb.append(indent).append(prefix).append("(reader.readInt32Value()").append(closeSuffix)
-							.append(");\n");
+					sb.append(indent).append(prefix)
+							.append("(io.suboptimal.buffjson.internal.FieldReader.readStrictInt32(reader)")
+							.append(closeSuffix).append(");\n");
 				}
 			}
 			case LONG -> {
@@ -234,8 +236,9 @@ final class DecoderGenerator {
 					.append(");\n");
 			case BOOLEAN ->
 				sb.append(indent).append(prefix).append("(reader.readBoolValue()").append(closeSuffix).append(");\n");
-			case STRING ->
-				sb.append(indent).append(prefix).append("(reader.readString()").append(closeSuffix).append(");\n");
+			case STRING -> sb.append(indent).append(prefix)
+					.append("(io.suboptimal.buffjson.internal.FieldReader.readStrictString(reader)").append(closeSuffix)
+					.append(");\n");
 			case BYTE_STRING -> sb.append(indent).append(prefix)
 					.append("(io.suboptimal.buffjson.internal.FieldReader.readBytes(reader)").append(closeSuffix)
 					.append(");\n");

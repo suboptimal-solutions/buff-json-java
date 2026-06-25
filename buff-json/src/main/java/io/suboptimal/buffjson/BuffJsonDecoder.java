@@ -137,7 +137,12 @@ public final class BuffJsonDecoder {
 	@SuppressWarnings("unchecked")
 	private <T extends Message> T readProto(JSONReader reader, Class<T> messageClass) {
 		if (reader.nextIfNull()) {
-			return null;
+			// proto3 JSON: a message is never representable as a bare top-level `null`
+			// (null is only a field value meaning "absent", or a wrapped NullValue), so
+			// reject it rather than returning a null Message. Empty input (a null/empty
+			// Java string/byte[]) is short-circuited by the public decode methods and is a
+			// separate, lenient convenience — only the literal `null` reaches here.
+			throw new JSONException(reader.info("Top-level null is not a valid proto3 JSON message"));
 		}
 		Message defaultInstance = ProtobufMessageReader.getDefaultInstance(messageClass);
 		Descriptor descriptor = defaultInstance.getDescriptorForType();
