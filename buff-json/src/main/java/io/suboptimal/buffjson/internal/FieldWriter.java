@@ -167,7 +167,8 @@ public final class FieldWriter {
 	 *
 	 * <p>
 	 * Entries are treated as generic {@link Message} instances via
-	 * {@code getField()} — works uniformly for both compiled {@link MapEntry} and
+	 * {@code getField()} — works uniformly for both compiled
+	 * {@link com.google.protobuf.MapEntry} and
 	 * {@link com.google.protobuf.DynamicMessage} map entries.
 	 */
 	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries,
