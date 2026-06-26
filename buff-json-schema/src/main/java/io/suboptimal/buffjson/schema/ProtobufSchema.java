@@ -273,9 +273,17 @@ public final class ProtobufSchema {
 			}
 		}
 
+		// Carry over annotations the base schema already holds — the float/double
+		// rebuild above starts from a fresh map, so anything added before
+		// applyConstraints (description, and the no-presence "default") must be copied
+		// or it is silently dropped.
 		Object desc = fieldSchema.get("description");
 		if (desc != null) {
 			result.put("description", desc);
+		}
+		Object def = fieldSchema.get("default");
+		if (def != null) {
+			result.put("default", def);
 		}
 		return result;
 	}
@@ -297,25 +305,51 @@ public final class ProtobufSchema {
 
 	/** Maps a single (non-repeated, non-map) field to its JSON Schema type. */
 	private Map<String, Object> schemaForSingleValue(FieldDescriptor fd) {
-		return switch (fd.getJavaType()) {
+		Map<String, Object> schema = switch (fd.getJavaType()) {
 			case INT -> schemaForIntField(fd);
 			case LONG -> schemaForLongField(fd);
 			case FLOAT, DOUBLE -> floatSchema();
-			case BOOLEAN -> {
-				Map<String, Object> schema = mapOf("type", "boolean");
-				// Implicit-presence bool: an omitted property in proto3 JSON is parsed
-				// back as false, so document that via the "default" annotation. Skipped
-				// for repeated elements and map values (emitted even when false) and for
-				// explicit presence (absent means "unset", not false).
-				if (defaultsWhenOmitted(fd)) {
-					schema.put("default", false);
-				}
-				yield schema;
-			}
+			case BOOLEAN -> mapOf("type", "boolean");
 			case STRING -> mapOf("type", "string");
 			case BYTE_STRING -> mapOf("type", "string", "contentEncoding", "base64");
 			case ENUM -> schemaForEnum(fd.getEnumType());
 			case MESSAGE -> schemaForMessage(fd.getMessageType());
+		};
+		// No-presence scalars: an omitted property in proto3 JSON decodes back to the
+		// type's zero value, so document that via the JSON Schema "default" annotation.
+		// defaultsWhenOmitted excludes repeated/map elements (serialized even at the
+		// default) and presence-tracked fields (optional / oneof / message — absent
+		// means "unset"), so message fields never reach scalarDefault.
+		if (defaultsWhenOmitted(fd)) {
+			Object def = scalarDefault(fd);
+			if (def != null) {
+				schema.put("default", def);
+			}
+		}
+		return schema;
+	}
+
+	/**
+	 * The proto3 default (zero) value of a no-presence scalar field, in its proto3
+	 * JSON representation: {@code 0} for 32-bit ints, the string {@code "0"} for
+	 * 64-bit ints (proto3 JSON quotes them), {@code 0.0} for float/double,
+	 * {@code false} for bool, {@code ""} for string and bytes, and the zero-value
+	 * name for enums. Returns {@code null} for message fields (unreachable — they
+	 * have presence) or an enum with no zero value (defensive; proto3 enums always
+	 * define one).
+	 */
+	private static Object scalarDefault(FieldDescriptor fd) {
+		return switch (fd.getJavaType()) {
+			case INT -> 0;
+			case LONG -> "0";
+			case FLOAT, DOUBLE -> 0.0;
+			case BOOLEAN -> false;
+			case STRING, BYTE_STRING -> "";
+			case ENUM -> {
+				EnumValueDescriptor zero = fd.getEnumType().findValueByNumber(0);
+				yield zero != null ? zero.getName() : null;
+			}
+			case MESSAGE -> null;
 		};
 	}
 

@@ -24,47 +24,67 @@ class BuffJsonSchemaTest {
 		Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 		assertNotNull(props);
 
-		// int32, sint32, sfixed32 → integer
-		assertEquals(Map.of("type", "integer"), props.get("optionalInt32"));
-		assertEquals(Map.of("type", "integer"), props.get("optionalSint32"));
-		assertEquals(Map.of("type", "integer"), props.get("optionalSfixed32"));
+		// No-presence scalars carry the proto3 zero value as "default" (an omitted
+		// property decodes back to it): int→0, int64→"0", float→0.0, ""/false, etc.
 
-		// uint32, fixed32 → integer with minimum 0
+		// int32, sint32, sfixed32 → integer, default 0
+		assertEquals(Map.of("type", "integer", "default", 0), props.get("optionalInt32"));
+		assertEquals(Map.of("type", "integer", "default", 0), props.get("optionalSint32"));
+		assertEquals(Map.of("type", "integer", "default", 0), props.get("optionalSfixed32"));
+
+		// uint32, fixed32 → integer with minimum 0, default 0
 		assertIntegerWithMinZero(props.get("optionalUint32"));
 		assertIntegerWithMinZero(props.get("optionalFixed32"));
+		assertDefault(props.get("optionalUint32"), 0);
+		assertDefault(props.get("optionalFixed32"), 0);
 
-		// int64, sint64, sfixed64 → string with format int64
+		// int64, sint64, sfixed64 → string with format int64, default "0" (64-bit
+		// quoted)
 		assertStringWithFormat(props.get("optionalInt64"), "int64");
 		assertStringWithFormat(props.get("optionalSint64"), "int64");
 		assertStringWithFormat(props.get("optionalSfixed64"), "int64");
+		assertDefault(props.get("optionalInt64"), "0");
+		assertDefault(props.get("optionalSint64"), "0");
+		assertDefault(props.get("optionalSfixed64"), "0");
 
-		// uint64, fixed64 → string with format uint64
+		// uint64, fixed64 → string with format uint64, default "0"
 		assertStringWithFormat(props.get("optionalUint64"), "uint64");
 		assertStringWithFormat(props.get("optionalFixed64"), "uint64");
+		assertDefault(props.get("optionalUint64"), "0");
+		assertDefault(props.get("optionalFixed64"), "0");
 
-		// float, double → oneOf [number, string enum]
+		// float, double → oneOf [number, string enum], default 0.0
 		assertFloatSchema(props.get("optionalFloat"));
 		assertFloatSchema(props.get("optionalDouble"));
+		assertDefault(props.get("optionalFloat"), 0.0);
+		assertDefault(props.get("optionalDouble"), 0.0);
 
 		// bool (implicit presence) → boolean with default false (omitted JSON ⟺ false)
 		assertEquals(Map.of("type", "boolean", "default", false), props.get("optionalBool"));
 
-		// string → string
-		assertEquals(Map.of("type", "string"), props.get("optionalString"));
+		// string → string, default ""
+		assertEquals(Map.of("type", "string", "default", ""), props.get("optionalString"));
 
-		// bytes → string with contentEncoding base64
+		// bytes → string with contentEncoding base64, default "" (empty base64)
 		assertBytesSchema(props.get("optionalBytes"));
+		assertDefault(props.get("optionalBytes"), "");
 	}
 
 	@Test
-	void explicitPresenceBoolHasNoDefault() {
-		// optional bool: an absent field means "unset", not false, so no "default"
-		// annotation is emitted (distinct from the implicit-presence bool above).
+	void explicitPresenceScalarsHaveNoDefault() {
+		// optional fields have explicit presence: an absent field means "unset", not
+		// the zero value, so NO "default" annotation is emitted for any scalar type
+		// (distinct from the implicit-presence scalars above).
 		Map<String, Object> schema = ProtobufSchema.generate(TestOptionalFields.getDescriptor());
 
 		@SuppressWarnings("unchecked")
 		Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 		assertEquals(Map.of("type", "boolean"), props.get("optionalBool"));
+		assertEquals(Map.of("type", "integer"), props.get("optionalInt32"));
+		assertEquals(Map.of("type", "string"), props.get("optionalString"));
+		// optional enum → bare $ref, no default sibling
+		assertFalse(((Map<?, ?>) props.get("optionalEnum")).containsKey("default"),
+				"explicit-presence enum must not carry a default");
 	}
 
 	@Test
@@ -107,7 +127,8 @@ class BuffJsonSchemaTest {
 		@SuppressWarnings("unchecked")
 		Map<String, Object> valueSchema = (Map<String, Object>) nestedProps.get("value");
 		assertEquals("integer", valueSchema.get("type"));
-		assertEquals(Map.of("type", "string"), nestedProps.get("name"));
+		assertEquals(0, valueSchema.get("default"));
+		assertEquals(Map.of("type", "string", "default", ""), nestedProps.get("name"));
 
 		// repeated nested → array of $ref
 		@SuppressWarnings("unchecked")
@@ -115,8 +136,10 @@ class BuffJsonSchemaTest {
 		assertEquals("array", repeatedNested.get("type"));
 		assertRef("io.suboptimal.buffjson.proto.NestedMessage", repeatedNested.get("items"));
 
-		// enum → $ref to $defs
+		// enum → $ref to $defs, with default = zero-value name (sibling of $ref, valid
+		// in draft 2020-12). The enum *definition* in $defs carries no default.
 		assertRef("io.suboptimal.buffjson.proto.TestEnum", props.get("enumValue"));
+		assertDefault(props.get("enumValue"), "TEST_ENUM_UNSPECIFIED");
 
 		@SuppressWarnings("unchecked")
 		Map<String, Object> enumSchema = (Map<String, Object>) defs.get("io.suboptimal.buffjson.proto.TestEnum");
@@ -355,6 +378,12 @@ class BuffJsonSchemaTest {
 	private void assertRef(String expectedFullName, Object schema) {
 		Map<String, Object> s = (Map<String, Object>) schema;
 		assertEquals("#/$defs/" + expectedFullName, s.get("$ref"));
+	}
+
+	@SuppressWarnings("unchecked")
+	private void assertDefault(Object schema, Object expectedDefault) {
+		Map<String, Object> s = (Map<String, Object>) schema;
+		assertEquals(expectedDefault, s.get("default"));
 	}
 
 	@SuppressWarnings("unchecked")

@@ -49,10 +49,14 @@ Walks the protobuf `Descriptor` tree and maps each field to its Proto3 JSON Sche
 - int64, sint64, sfixed64 → `{"type": "string", "format": "int64"}`
 - uint64, fixed64 → `{"type": "string", "format": "uint64"}`
 - float, double → `{"oneOf": [{"type": "number"}, {"type": "string", "enum": ["NaN", "Infinity", "-Infinity"]}]}`
-- bool → `{"type": "boolean"}`; **implicit-presence** singular bool also gets `"default": false` (an omitted property in proto3 JSON is parsed back as `false`). Excluded for explicit presence (`optional`/oneof — absent means "unset", not `false`), repeated elements, map values, and `BoolValue` (all serialize `false` rather than omit it). Keyed off `FieldDescriptor.hasPresence()` in the singular-field branch of `schemaForField`.
+- bool → `{"type": "boolean"}`
 - string → `{"type": "string"}`
 - bytes → `{"type": "string", "contentEncoding": "base64"}`
 - enum → `{"type": "string", "title": "EnumName", "enum": ["VALUE1", ...]}`
+
+#### `default` annotation for no-presence scalars
+
+Singular **implicit-presence** scalar fields also carry a `"default"` set to the proto3 zero value an omitted property decodes back to — in its proto3 JSON form: `int→0`, `int64/uint64→"0"` (64-bit is quoted), `float/double→0.0`, `bool→false`, `string/bytes→""`, `enum→` the zero-value name (e.g. `"FOO_UNSPECIFIED"`). For enums the `default` sits beside the `$ref` (valid in draft 2020-12); the enum definition in `$defs` carries none. Gated by `defaultsWhenOmitted(fd)` = `!isRepeated && !hasPresence && !mapEntry`, applied once after the type switch in `schemaForSingleValue`. **Excluded** (no `default`): explicit presence (`optional`/oneof — absent means "unset"), repeated elements and map values (serialized even at the default), and message/WKT fields incl. wrappers like `BoolValue` (they have presence). `default` is a non-validating annotation, so it never affects whether a document validates. The swagger `ModelConverter` propagates it via `case "default" -> schema.setDefault(value)`.
 
 ### Composites
 

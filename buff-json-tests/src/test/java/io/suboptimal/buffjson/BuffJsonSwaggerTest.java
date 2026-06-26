@@ -51,16 +51,18 @@ class BuffJsonSwaggerTest {
 		Map<String, Schema> props = properties(schema);
 		assertNotNull(props);
 
-		// int32 → integer
+		// int32 → integer, no-presence default 0 propagated to OpenAPI
 		assertType("integer", props.get("optionalInt32"));
+		assertEquals(0, props.get("optionalInt32").getDefault());
 
 		// uint32 → integer with minimum 0
 		assertType("integer", props.get("optionalUint32"));
 		assertEquals(0, props.get("optionalUint32").getMinimum().intValue());
 
-		// int64 → string with format int64
+		// int64 → string with format int64, default "0" (64-bit quoted) propagated
 		assertType("string", props.get("optionalInt64"));
 		assertEquals("int64", props.get("optionalInt64").getFormat());
+		assertEquals("0", props.get("optionalInt64").getDefault());
 
 		// uint64 → string with format uint64
 		assertType("string", props.get("optionalUint64"));
@@ -74,8 +76,9 @@ class BuffJsonSwaggerTest {
 		assertType("boolean", props.get("optionalBool"));
 		assertEquals(Boolean.FALSE, props.get("optionalBool").getDefault());
 
-		// string → string
+		// string → string, default "" propagated
 		assertType("string", props.get("optionalString"));
+		assertEquals("", props.get("optionalString").getDefault());
 
 		// bytes → string with contentEncoding base64
 		assertType("string", props.get("optionalBytes"));

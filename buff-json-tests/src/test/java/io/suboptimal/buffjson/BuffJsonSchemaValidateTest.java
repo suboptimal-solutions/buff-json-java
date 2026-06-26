@@ -186,6 +186,8 @@ class BuffJsonSchemaValidateTest {
 		// string branch unchanged
 		var stringBranch = oneOf.get(1);
 		assertEquals("string", stringBranch.get("type"));
+		// no-presence default survives the oneOf rebuild (not just description)
+		assertEquals(0.0, ratio.get("default"));
 	}
 
 	@Test
@@ -196,6 +198,8 @@ class BuffJsonSchemaValidateTest {
 		assertEquals("number", temp.get("type"));
 		assertNull(temp.get("oneOf"), "Should not have oneOf when finite");
 		assertEquals(-273.15f, temp.get("minimum"));
+		// no-presence default survives the finite collapse to plain number
+		assertEquals(0.0, temp.get("default"));
 	}
 
 	@Test
@@ -205,6 +209,8 @@ class BuffJsonSchemaValidateTest {
 		// No constraints, standard oneOf schema
 		assertNotNull(weight.get("oneOf"), "Unconstrained double should use oneOf");
 		assertNull(weight.get("type"), "Should not have top-level type");
+		// no-presence default present on the unconstrained (early-return) path too
+		assertEquals(0.0, weight.get("default"));
 	}
 
 	// --- comment + constraint coexistence ---
