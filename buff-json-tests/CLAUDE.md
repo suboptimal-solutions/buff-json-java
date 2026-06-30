@@ -67,7 +67,7 @@ are produced alongside standard protobuf sources. A `<resources>` entry copies t
 
 ### JSON Schema Tests
 
-- `BuffJsonSchemaTest.java` — 17 tests covering `ProtobufSchema.generate()`:
+- `BuffJsonSchemaTest.java` — 18 tests covering `ProtobufSchema.generate()`/`generateJson()`:
   - allScalarTypes: all 15 scalar types mapped to correct JSON Schema types (including format/contentEncoding); each no-presence scalar carries its proto3 zero as `"default"` (int→0, int64→"0", float→0.0, bool→false, string/bytes→"")
   - explicitPresenceBoolHasNoDefault: `optional bool` omits the `default` annotation (absent ⟺ unset, not false)
   - nestedMessages also asserts the enum field's `default` is the zero-value name ("TEST_ENUM_UNSPECIFIED") beside its `$ref`
@@ -85,7 +85,9 @@ are produced alongside standard protobuf sources. A `<resources>` entry copies t
   - emptyType: Empty → object
   - customJsonName: json_name annotation used as property key
   - generateFromClass: Class-based API convenience method
-  - protoCommentsFromGeneratedRegistry: verifies proto comments from generated `*Comments` classes appear as `description` (messages, enums, no-comment → null)
+  - protoCommentsFromBakedSchema: verifies proto comments live only in the baked `META-INF/buff-json/schema/<fullName>.json` resource and are overlaid onto `generate()`'s `description` fields (messages, enums, fields, multiline, `/** */` block comments cleaned; no-comment → null)
+  - generateJsonReturnsCommentRichJsonText: `generateJson()` returns valid, comment-rich JSON text (parsed back with fastjson2); the Class overload agrees with the Descriptor overload
+  - (`BuffJsonSchemaValidateTest` adds `generateJsonServesBakedSchemaWithCommentsAndConstraints`: the baked `META-INF/buff-json/schema/<fullName>.json` carries both proto comments and buf.validate constraints)
 
 ### buf.validate Constraint Tests
 

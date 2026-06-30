@@ -3,17 +3,21 @@
 ## Module Purpose
 
 Generates JSON Schema (draft 2020-12) from protobuf message Descriptors.
-No fastjson2 dependency — only `protobuf-java` (provided scope).
-Returns `Map<String, Object>` for maximum portability with OpenAPI 3.1+, AsyncAPI 3.0+, MCP, and any JSON library.
+`generate(Descriptor)` returns `Map<String, Object>` for maximum portability with OpenAPI 3.1+, AsyncAPI 3.0+, MCP, and any JSON library — it needs only `protobuf-java` (provided scope) and is always computed live, so the map's exact number types (`Integer`/`Long`/`Float`/`Double`) are preserved.
+`generateJson(Descriptor)` returns JSON **text**: the schema the protoc plugin pre-baked into `META-INF/buff-json/schema/<fullName>.json` when present, else a live schema serialized on the fly via **fastjson2** (`JSON.toJSONString`; provided scope — always present in the buff-json ecosystem). The baked schema is served as text, never parsed back into a map — a JSON round-trip can't preserve the number-type distinctions above.
 
 ## Package Layout
 
 ```
 io.suboptimal.buffjson.schema/
-  ProtobufSchema.java            # Public API — ProtobufSchema.generate(Descriptor) / generate(Class)
-  GeneratedCommentRegistry.java  # Comment registry populated via reflection from generated outer class static blocks (package-private)
-  ValidateConstraints.java       # buf.validate constraint extraction → JSON Schema keywords (package-private)
+  ProtobufSchema.java       # Public API — generate(Descriptor/Class)→Map, generateJson(Descriptor/Class)→String
+  BakedSchema.java          # Loads pre-generated META-INF/buff-json/schema/<fullName>.json resources, served as text (package-private)
+  ValidateConstraints.java  # buf.validate constraint extraction → JSON Schema keywords (package-private)
 ```
+
+`META-INF/native-image/io.github.suboptimal-solutions/buff-json-schema/resource-config.json`
+ships a glob include for the schema resources so GraalVM native images pick them up from any
+jar on the classpath — consumers need no native-image config.
 
 ## How It Works
 
@@ -34,9 +38,9 @@ Walks the protobuf `Descriptor` tree and maps each field to its Proto3 JSON Sche
 7. **Metadata enrichment**:
    - `title` on messages (from `descriptor.getName()`) and enums (from `enumDesc.getName()`)
    - `description` on WKTs with format info (e.g., Duration: "Signed seconds with up to 9 fractional digits, suffixed with 's'.")
-   - `description` from proto comments (two sources, checked in order):
-     1. `GeneratedCommentRegistry` — populated via reflection from generated protobuf outer class static initializers (protoc plugin extracts comments from `SourceCodeInfo` and registers them via `outer_class_scope` insertion point)
-     2. `SourceCodeInfo` fallback — for descriptors loaded from `.desc` files with `--include_source_info`
+   - `description` from proto comments — comments live **only** in the baked schema resource:
+     1. At build time (inside the plugin) comments come from `SourceCodeInfo`, cleaned by `stripCommentLines` (trims each line, drops `/** */` block-comment `*` prefixes and blank lines), and are baked into `META-INF/buff-json/schema/<fullName>.json`.
+     2. At runtime `generate()` does the live walk (no `SourceCodeInfo` on a compiled descriptor) then overlays the baked schema's `description` fields onto the Map (`overlayDescriptions`, structurally matched). `BakedSchema` loads the resource; absent → fall back to `SourceCodeInfo` (e.g. a `.desc` loaded with `--include_source_info`). No reflection, no injected code, no separate comments resource.
    - `format` hints: `"int64"` / `"uint64"` on 64-bit string fields, `"date-time"` on Timestamp
    - `contentEncoding: "base64"` on bytes / BytesValue fields
 
@@ -126,6 +130,7 @@ via `Class.forName("build.buf.validate.ValidateProto")` checked once at class lo
 ## Dependencies
 
 - `com.google.protobuf:protobuf-java` (provided) — Descriptor, FieldDescriptor, EnumDescriptor, FileDescriptor, DescriptorProtos, SourceCodeInfo, Message
+- `com.alibaba.fastjson2:fastjson2` (provided) — `JSON.toJSONString` for the `generateJson()` text serialization. `generate(Descriptor)→Map` does not use it; only `generateJson()` does
 - `io.github.suboptimal-solutions:buff-json` (provided) — BuffJsonCodecHolder interface
 - `build.buf:protovalidate` (optional) — buf.validate constraint types (FieldRules, StringRules, ValidateProto)
 

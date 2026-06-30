@@ -2,7 +2,6 @@ package io.suboptimal.buffjson.protoc;
 
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -11,8 +10,11 @@ import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.DescriptorValidationException;
 import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FileDescriptor;
+import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.compiler.PluginProtos.CodeGeneratorRequest;
 import com.google.protobuf.compiler.PluginProtos.CodeGeneratorResponse;
+
+import io.suboptimal.buffjson.schema.ProtobufSchema;
 
 /**
  * Protoc plugin that generates optimized JSON encoder and decoder classes for
@@ -41,8 +43,26 @@ public final class BuffJsonProtocPlugin {
 			"google.protobuf.UInt32Value", "google.protobuf.BoolValue", "google.protobuf.StringValue",
 			"google.protobuf.BytesValue");
 
+	/**
+	 * Extension registry carrying buf.validate's custom options, so field options
+	 * parse into typed extensions and {@link ProtobufSchema} can read constraints
+	 * when baking schemas. Empty when protovalidate is absent — then no constraints
+	 * are baked, which is harmless.
+	 */
+	private static final ExtensionRegistry VALIDATE_REGISTRY = buildValidateRegistry();
+
+	private static ExtensionRegistry buildValidateRegistry() {
+		ExtensionRegistry registry = ExtensionRegistry.newInstance();
+		try {
+			build.buf.validate.ValidateProto.registerAllExtensions(registry);
+		} catch (Throwable ignored) {
+			// protovalidate not on the plugin classpath — skip constraint baking
+		}
+		return registry;
+	}
+
 	public static void main(String[] args) throws Exception {
-		CodeGeneratorRequest request = CodeGeneratorRequest.parseFrom(System.in);
+		CodeGeneratorRequest request = CodeGeneratorRequest.parseFrom(System.in, VALIDATE_REGISTRY);
 
 		CodeGeneratorResponse.Builder response = CodeGeneratorResponse.newBuilder();
 		response.setSupportedFeatures(CodeGeneratorResponse.Feature.FEATURE_PROTO3_OPTIONAL_VALUE);
@@ -96,21 +116,35 @@ public final class BuffJsonProtocPlugin {
 						"JsonDecoder", DecoderGenerator::generate);
 				generateInsertionPoints(response, msgDesc, fileDesc, javaPackage, protoToEncoderClass,
 						protoToDecoderClass);
-			}
-
-			// Register comments via outer_class_scope insertion point
-			List<Map.Entry<String, String>> commentEntries = CommentGenerator.extractComments(fileDesc.toProto());
-			String commentBlock = CommentGenerator.generateRegistrationBlock(commentEntries);
-			if (commentBlock != null) {
-				String outerClassFile = outerClassFilePath(fileDesc, javaPackage);
-				response.addFile(CodeGeneratorResponse.File.newBuilder().setName(outerClassFile)
-						.setInsertionPoint("outer_class_scope").setContent(commentBlock).build());
+				generateSchemaResources(response, msgDesc);
 			}
 		}
 	}
 
 	private static boolean shouldSkip(Descriptor msgDesc) {
 		return msgDesc.getOptions().getMapEntry() || WELL_KNOWN_TYPES.contains(msgDesc.getFullName());
+	}
+
+	/**
+	 * Emits a pre-generated JSON Schema resource
+	 * ({@code META-INF/buff-json/schema/<fullName>.json}) for the message and its
+	 * nested types. Reuses {@link ProtobufSchema} so the baked schema is
+	 * byte-identical to a runtime-generated one; proto comments come from
+	 * {@code SourceCodeInfo} (present at build time) and buf.validate constraints
+	 * from the registered extensions. {@code buff-json-schema} serves these via
+	 * {@code ProtobufSchema.generateJson(...)}; the generated message classes never
+	 * reference them and keep depending only on protobuf-java.
+	 */
+	private static void generateSchemaResources(CodeGeneratorResponse.Builder response, Descriptor msgDesc) {
+		if (shouldSkip(msgDesc)) {
+			return;
+		}
+		String json = ProtobufSchema.generateJson(msgDesc);
+		response.addFile(CodeGeneratorResponse.File.newBuilder()
+				.setName("META-INF/buff-json/schema/" + msgDesc.getFullName() + ".json").setContent(json).build());
+		for (Descriptor nested : msgDesc.getNestedTypes()) {
+			generateSchemaResources(response, nested);
+		}
 	}
 
 	private static void collectCodegenNames(Descriptor msgDesc, String javaPackage, Map<String, String> out,
@@ -217,14 +251,6 @@ public final class BuffJsonProtocPlugin {
 	}
 
 	/**
-	 * Returns the file path for the proto file's outer class (used for
-	 * {@code outer_class_scope} insertion point).
-	 */
-	private static String outerClassFilePath(FileDescriptor fileDesc, String javaPackage) {
-		return javaPackage.replace('.', '/') + "/" + getOuterClassName(fileDesc) + ".java";
-	}
-
-	/**
 	 * Flattened name for nested messages: Outer.Inner becomes Outer_Inner.
 	 */
 	private static String flatName(Descriptor desc) {
@@ -264,6 +290,10 @@ public final class BuffJsonProtocPlugin {
 		}
 
 		FileDescriptor fd = FileDescriptor.buildFrom(fdp, deps);
+		// Surface buf.validate (and any other registered) custom options as typed
+		// extensions on the descriptor's options, so ProtobufSchema can read field
+		// constraints when baking schemas. No-op when the registry is empty.
+		FileDescriptor.internalUpdateFileDescriptor(fd, VALIDATE_REGISTRY);
 		built.put(fdp.getName(), fd);
 		return fd;
 	}

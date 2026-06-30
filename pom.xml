@@ -27,8 +27,8 @@
 
     <modules>
         <module>buff-json</module>
-        <module>buff-json-protoc-plugin</module>
         <module>buff-json-schema</module>
+        <module>buff-json-protoc-plugin</module>
         <module>buff-json-swagger</module>
         <module>buff-json-jackson</module>
         <module>buff-json-tests</module>

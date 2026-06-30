@@ -13,9 +13,21 @@
     <description>Protoc plugin that generates optimized JSON encoders for protobuf messages</description>
 
     <dependencies>
+        <!-- Build-time only: lets ProtobufSchema read buf.validate constraints when baking
+             schemas. Generated code never depends on it. -->
+        <dependency>
+            <groupId>build.buf</groupId>
+            <artifactId>protovalidate</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
+        </dependency>
+        <!-- Build-time only: the plugin reuses ProtobufSchema to bake JSON Schema resources
+             at code-generation time. Not a runtime dependency of the generated code. -->
+        <dependency>
+            <groupId>io.github.suboptimal-solutions</groupId>
+            <artifactId>buff-json-schema</artifactId>
         </dependency>
     </dependencies>
 </project>

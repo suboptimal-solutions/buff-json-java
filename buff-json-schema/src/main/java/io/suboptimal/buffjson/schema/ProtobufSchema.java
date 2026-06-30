@@ -2,6 +2,7 @@ package io.suboptimal.buffjson.schema;
 
 import java.util.*;
 
+import com.alibaba.fastjson2.JSON;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.DescriptorProtos.SourceCodeInfo;
@@ -108,6 +109,19 @@ public final class ProtobufSchema {
 	/**
 	 * Generates a JSON Schema from a protobuf {@link Descriptor}.
 	 *
+	 * <p>
+	 * Proto comments are sourced from the JSON Schema the protoc plugin baked into
+	 * {@code META-INF/buff-json/schema/<fullName>.json} (the single home for
+	 * comments) — at runtime a compiled descriptor carries no
+	 * {@code SourceCodeInfo}, so the live walk has no comments and the
+	 * {@code description} fields are overlaid from the baked schema. Only
+	 * description strings are copied; every number comes from the live walk,
+	 * preserving the map's exact
+	 * {@code Integer}/{@code Long}/{@code Float}/{@code Double} types (which a JSON
+	 * round-trip could not). When no baked schema is present (e.g. a
+	 * {@link com.google.protobuf.DynamicMessage} from a {@code .desc} with
+	 * {@code --include_source_info}), comments come from {@code SourceCodeInfo}.
+	 *
 	 * @param descriptor
 	 *            the message descriptor
 	 * @return a JSON Schema as a {@code Map<String, Object>}
@@ -119,7 +133,40 @@ public final class ProtobufSchema {
 		if (!generator.defs.isEmpty()) {
 			schema.put("$defs", new LinkedHashMap<>(generator.defs));
 		}
+		String baked = BakedSchema.load(descriptor);
+		if (baked != null) {
+			overlayDescriptions(schema, JSON.parseObject(baked));
+		}
 		return schema;
+	}
+
+	/**
+	 * Copies {@code description} values from a parsed baked schema onto the freshly
+	 * generated schema at structurally-matching positions (same map keys / list
+	 * indices). Only descriptions are taken from the baked side; every other value
+	 * — crucially the numbers, whose boxed types a JSON round-trip would not
+	 * preserve — comes from the live schema. Both trees are produced by this same
+	 * generator for the same descriptor, so their structure is identical and
+	 * positions align; keys present on only one side are simply skipped.
+	 */
+	@SuppressWarnings("unchecked")
+	private static void overlayDescriptions(Object live, Object baked) {
+		if (live instanceof Map<?, ?> liveMap && baked instanceof Map<?, ?> bakedMap) {
+			Object desc = bakedMap.get("description");
+			if (desc instanceof String) {
+				((Map<String, Object>) liveMap).put("description", desc);
+			}
+			for (Map.Entry<?, ?> entry : liveMap.entrySet()) {
+				Object bakedChild = bakedMap.get(entry.getKey());
+				if (bakedChild != null) {
+					overlayDescriptions(entry.getValue(), bakedChild);
+				}
+			}
+		} else if (live instanceof List<?> liveList && baked instanceof List<?> bakedList) {
+			for (int i = 0; i < liveList.size() && i < bakedList.size(); i++) {
+				overlayDescriptions(liveList.get(i), bakedList.get(i));
+			}
+		}
 	}
 
 	/**
@@ -133,6 +180,45 @@ public final class ProtobufSchema {
 		try {
 			Message defaultInstance = (Message) messageClass.getMethod("getDefaultInstance").invoke(null);
 			return generate(defaultInstance.getDescriptorForType());
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalArgumentException("Cannot get descriptor for " + messageClass.getName(), e);
+		}
+	}
+
+	/**
+	 * Returns a JSON Schema as JSON text, either read from a resource pre-generated
+	 * by the protoc plugin ({@code META-INF/buff-json/schema/<fullName>.json}) or,
+	 * when none is present, serialized from a freshly
+	 * {@linkplain #generate(Descriptor) generated} schema.
+	 *
+	 * <p>
+	 * The pre-generated resource carries proto comments and buf.validate
+	 * constraints baked in at build time, where {@code SourceCodeInfo} is
+	 * available. Serving it as text (rather than parsing it back into a
+	 * {@code Map}) preserves the schema's exact numeric forms, which a JSON
+	 * round-trip could not.
+	 *
+	 * @param descriptor
+	 *            the message descriptor
+	 * @return the JSON Schema as a JSON string
+	 */
+	public static String generateJson(Descriptor descriptor) {
+		String baked = BakedSchema.load(descriptor);
+		return baked != null ? baked : JSON.toJSONString(generate(descriptor));
+	}
+
+	/**
+	 * Returns a JSON Schema as JSON text from a protobuf {@link Message} class. See
+	 * {@link #generateJson(Descriptor)}.
+	 *
+	 * @param messageClass
+	 *            the message class
+	 * @return the JSON Schema as a JSON string
+	 */
+	public static <T extends Message> String generateJson(Class<T> messageClass) {
+		try {
+			Message defaultInstance = (Message) messageClass.getMethod("getDefaultInstance").invoke(null);
+			return generateJson(defaultInstance.getDescriptorForType());
 		} catch (ReflectiveOperationException e) {
 			throw new IllegalArgumentException("Cannot get descriptor for " + messageClass.getName(), e);
 		}
@@ -508,19 +594,11 @@ public final class ProtobufSchema {
 	}
 
 	private String getComment(Descriptor descriptor) {
-		String comment = GeneratedCommentRegistry.getComment(descriptor.getFullName());
-		if (comment != null) {
-			return comment;
-		}
 		List<Integer> path = getMessagePath(descriptor);
 		return lookupComment(descriptor.getFile(), path);
 	}
 
 	private String getComment(FieldDescriptor fd) {
-		String comment = GeneratedCommentRegistry.getComment(fd.getFullName());
-		if (comment != null) {
-			return comment;
-		}
 		Descriptor parent = fd.getContainingType();
 		List<Integer> parentPath = getMessagePath(parent);
 		List<Integer> path = new ArrayList<>(parentPath);
@@ -530,10 +608,6 @@ public final class ProtobufSchema {
 	}
 
 	private String getComment(EnumDescriptor enumDesc) {
-		String comment = GeneratedCommentRegistry.getComment(enumDesc.getFullName());
-		if (comment != null) {
-			return comment;
-		}
 		if (enumDesc.getContainingType() != null) {
 			List<Integer> parentPath = getMessagePath(enumDesc.getContainingType());
 			List<Integer> path = new ArrayList<>(parentPath);
@@ -575,13 +649,38 @@ public final class ProtobufSchema {
 		Map<List<Integer>, String> index = new HashMap<>();
 		for (SourceCodeInfo.Location loc : info.getLocationList()) {
 			if (loc.hasLeadingComments()) {
-				String comment = loc.getLeadingComments().strip();
+				String comment = stripCommentLines(loc.getLeadingComments());
 				if (!comment.isEmpty()) {
 					index.put(loc.getPathList(), comment);
 				}
 			}
 		}
 		return index;
+	}
+
+	/**
+	 * Cleans a raw {@code leading_comments} string: trims each line, drops the
+	 * {@code * } / {@code *} prefix that protoc keeps for
+	 * {@code /** ... *}{@code /} block comments, removes blank lines, and joins the
+	 * rest with newlines.
+	 */
+	private static String stripCommentLines(String comment) {
+		StringBuilder sb = new StringBuilder();
+		for (String line : comment.split("\n")) {
+			String stripped = line.strip();
+			if (stripped.startsWith("* ")) {
+				stripped = stripped.substring(2);
+			} else if (stripped.equals("*")) {
+				stripped = "";
+			}
+			if (!stripped.isEmpty()) {
+				if (!sb.isEmpty()) {
+					sb.append('\n');
+				}
+				sb.append(stripped);
+			}
+		}
+		return sb.toString();
 	}
 
 	private static Map<String, Object> ref(String fullName) {

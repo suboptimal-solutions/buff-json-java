@@ -18,6 +18,13 @@
             <artifactId>protovalidate</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- generate() overlays comments by parsing the baked schema, and generateJson()
+             serializes via JSON.toJSONString — so fastjson2 is a real runtime dependency
+             of the schema API (compile, transitive to swagger and the protoc plugin). -->
+        <dependency>
+            <groupId>com.alibaba.fastjson2</groupId>
+            <artifactId>fastjson2</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>

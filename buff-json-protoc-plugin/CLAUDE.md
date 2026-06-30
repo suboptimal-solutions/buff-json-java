@@ -6,10 +6,13 @@ Protoc plugin that generates optimized `*JsonEncoder` and `*JsonDecoder` classes
 insertion points that inject `BuffJsonCodecHolder` into generated message classes.
 Generated encoders use typed accessors directly (`msg.getId()` returns `int`) instead of
 `message.getField(fd)` (which returns `Object` and boxes primitives), eliminating boxing,
-runtime type dispatch, and schema cache lookups. Proto source comments are extracted from
-`SourceCodeInfo` (which protoc always provides to plugins) and registered via
-`outer_class_scope` insertion point using reflection — only activated when `buff-json-schema`
-is on the classpath.
+runtime type dispatch, and schema cache lookups. The plugin also bakes one **JSON Schema
+resource** per message at `META-INF/buff-json/schema/<fullName>.json` (no code injected into
+protobuf's classes, so generated messages keep depending only on `protobuf-java`), built by
+reusing `ProtobufSchema` at code-gen time — proto comments from `SourceCodeInfo` (which protoc
+always provides to plugins) and buf.validate constraints surfaced via a registered
+`ExtensionRegistry`. Comments live **only** in this baked schema; there is no separate comments
+resource.
 
 ## How It Works
 
@@ -22,7 +25,7 @@ Standard protoc plugin protocol: reads `CodeGeneratorRequest` from stdin, writes
 - `BuffJsonProtocPlugin.java` — main entry point, builds `FileDescriptor` graph, orchestrates generation
 - `EncoderGenerator.java` — generates one `*JsonEncoder` class per message type
 - `DecoderGenerator.java` — generates one `*JsonDecoder` class per message type
-- `CommentGenerator.java` — extracts proto comments from `SourceCodeInfo` and generates static registration blocks for `outer_class_scope` insertion points
+- JSON Schema baking — `BuffJsonProtocPlugin.generateSchemaResources(...)` calls `ProtobufSchema.generateJson(descriptor)` (from `buff-json-schema`, a build-time dep) per message and writes the result to a `.json` resource. Comments come from `SourceCodeInfo` (present at build time) through `ProtobufSchema`; constraints from the `buf.validate` `ExtensionRegistry` wired in `buildValidateRegistry()` + `internalUpdateFileDescriptor`
 
 ## What Gets Generated
 
@@ -35,7 +38,7 @@ For each non-WKT, non-map-entry message type:
 5. A `writeFields(JSONWriter, T, ProtobufMessageWriter)` method with inlined per-field encoding logic, opening with `boolean utf8 = jsonWriter.isUTF8();` so each field-name write dispatches via `if (utf8) writeNameRaw(NAME_X_BYTES); else writeNameRaw(NAME_X);`
 6. A `message_implements` insertion point per message adding `BuffJsonCodecHolder` to the implements clause
 7. A `class_scope` insertion point per message adding `buffJsonEncoder()`/`buffJsonDecoder()` method implementations
-8. An `outer_class_scope` insertion point per proto file with a `static {}` block that registers proto source comments via reflection into `GeneratedCommentRegistry` (only when `buff-json-schema` is on the classpath)
+8. A `META-INF/buff-json/schema/<fullName>.json` resource per message (the baked JSON Schema, comments and buf.validate constraints included) — read at runtime by `buff-json-schema`, with nothing injected into the generated protobuf classes
 
 ## Field Handling
 
@@ -82,16 +85,18 @@ For each non-WKT, non-map-entry message type:
 - **`google.protobuf.NullValue`** — serialized as JSON `null` (not the enum name `"NULL_VALUE"`): `EncoderGenerator.writeEnumValue` emits `jsonWriter.writeNull()` for the NullValue enum type. On decode, `DecoderGenerator` treats a JSON `null` for a NullValue field as `NULL_VALUE` via `setXxxValue(0)` (which also marks a oneof case as set); messages containing a NullValue or Value field are "null-sensitive" and skip the blanket null-skip so each field decides
 - **Cross-file nested encoder calls** — `protoToEncoderClass` only contains messages from `filesToGenerate`. If a nested message is defined in a non-generated file, the fallback to `writer.writeMessage(jsonWriter, nested)` is used (which still finds the encoder at runtime via `instanceof BuffJsonCodecHolder`)
 - **Insertion point file paths** — for `java_multiple_files = true`, message insertion points target `package/MessageName.java`; for `false`, they target `package/OuterClassName.java`. The `outer_class_scope` insertion point always targets the outer class file
-- **Block comments** (`/** */`) — the `*` prefix on each line is stripped by `CommentGenerator.stripLines()`, producing clean multiline text
+- **Block comments** (`/** */`) — the `*` prefix on each line is stripped by `ProtobufSchema.stripCommentLines()` (in `buff-json-schema`) when it reads `SourceCodeInfo` at bake time, producing clean multiline text
 - **Generated decoders route fallible parses through `FieldReader`** — `DecoderGenerator` emits `FieldReader.readStrictInt32(reader)`/`readStrictUint32(reader)` for int32/uint32/fixed32, `FieldReader.readStrictString(reader)` for string fields, `FieldReader.readBytes(reader)` for bytes, `FieldReader.enumNumber(reader, EnumClass.getDescriptor(), name)` for enum names, and `FieldReader.parseIntKey`/`parseUnsignedIntKey`/`parseLongKey`/`parseUnsignedLongKey(reader, keyStr)` for numeric map keys — never inline `reader.readInt32Value()`/`readString()`/`BASE64.decode`/`Enum.valueOf`/`Long.parseLong`. This gives generated code the same `JSONException`-for-bad-input contract **and** the same proto3 strictness (rejecting `1.5`, out-of-range, empty/wrong-type) as the runtime path (see buff-json `Error Contract` / `Decoder Input Hardening`); the helpers are `public` because generated code lives in the user's package
 
 ## Build
 
-- Depends only on `protobuf-java` (for `CodeGeneratorRequest`/`CodeGeneratorResponse` and descriptor APIs)
-- No shading needed — ascopes plugin resolves classpath automatically
-- Must be built before consumer modules (listed before tests/benchmarks in parent POM)
+- Build-time deps: `protobuf-java` (CodeGeneratorRequest/descriptor APIs), `buff-json-schema` (reused to bake JSON Schema resources), and `protovalidate` (so baked schemas carry buf.validate constraints). These are **code-generation-time only** — they never become runtime dependencies of the generated code.
+- No shading needed — the ascopes `jvm-maven` plugin resolves the plugin's transitive deps onto the code-gen classpath automatically (verified: `buff-json-schema` + `protovalidate` load during `generate`).
+- Built **after** `buff-json-schema` in the reactor (it now depends on it). Still built before the consumer modules (tests/benchmarks/conformance).
 
 ## Dependencies
 
-- `com.google.protobuf:protobuf-java` — CodeGeneratorRequest, FileDescriptor, FieldDescriptor
+- `com.google.protobuf:protobuf-java` — CodeGeneratorRequest, FileDescriptor, FieldDescriptor, ExtensionRegistry
+- `io.github.suboptimal-solutions:buff-json-schema` — `ProtobufSchema.generateJson(...)` for baking schema resources (build-time)
+- `build.buf:protovalidate` — buf.validate extensions registered into the parse `ExtensionRegistry` so constraints reach `ProtobufSchema` (build-time)
 

@@ -326,9 +326,10 @@ class BuffJsonSchemaTest {
 	}
 
 	@Test
-	void protoCommentsFromGeneratedRegistry() {
-		// Comments from conformance_test.proto are available via the generated
-		// ProtoCommentProvider (protoc plugin extracts them from SourceCodeInfo)
+	void protoCommentsFromBakedSchema() {
+		// Comments live only in the baked META-INF/buff-json/schema/<fullName>.json
+		// resource (the protoc plugin bakes them from SourceCodeInfo). generate()
+		// overlays their description fields onto the live-walked Map.
 		Map<String, Object> schema = ProtobufSchema.generate(TestAllScalars.getDescriptor());
 		assertEquals("Covers all scalar types", schema.get("description"));
 
@@ -370,6 +371,24 @@ class BuffJsonSchemaTest {
 		assertNotNull(valueDesc, "Multiline field comment should produce a description");
 		assertTrue(valueDesc.contains("Numeric identifier"), "First line of field comment");
 		assertTrue(valueDesc.contains("used for ordering"), "Second line of field comment");
+	}
+
+	@Test
+	void generateJsonReturnsCommentRichJsonText() {
+		// generateJson() serves the schema as JSON text — from the baked
+		// META-INF/buff-json/schema resource when present, else by serializing the
+		// freshly generated Map. Either way it carries the proto comments.
+		String json = ProtobufSchema.generateJson(TestAllScalars.getDescriptor());
+
+		// Valid, parseable JSON
+		Map<String, Object> parsed = com.alibaba.fastjson2.JSON.parseObject(json);
+		assertEquals("https://json-schema.org/draft/2020-12/schema", parsed.get("$schema"));
+		assertEquals("object", parsed.get("type"));
+		assertEquals("TestAllScalars", parsed.get("title"));
+		assertEquals("Covers all scalar types", parsed.get("description"));
+
+		// Class-based overload agrees
+		assertEquals(json, ProtobufSchema.generateJson(TestAllScalars.class));
 	}
 
 	// --- assertion helpers ---
