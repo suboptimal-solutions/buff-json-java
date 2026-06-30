@@ -148,7 +148,7 @@ public final class BuffJsonDecoder {
 		Descriptor descriptor = defaultInstance.getDescriptorForType();
 		T result = (T) messageReader().readMessage(reader, descriptor, defaultInstance);
 		if (!reader.isEnd()) {
-			throw new JSONException("input not end");
+			throw new JSONException(reader.info("input not end"));
 		}
 		return result;
 	}
