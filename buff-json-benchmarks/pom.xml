@@ -101,7 +101,7 @@
                         <path>
                             <groupId>com.alibaba.fastjson2</groupId>
                             <artifactId>fastjson2-codegen</artifactId>
-                            <version>2.0.60</version>
+                            <version>${fastjson2.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

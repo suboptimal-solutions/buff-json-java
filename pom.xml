@@ -44,7 +44,7 @@
 
     <properties>
         <central-publishing-maven-plugin.version>0.7.0</central-publishing-maven-plugin.version>
-        <fastjson2.version>2.0.61</fastjson2.version>
+        <fastjson2.version>2.0.62</fastjson2.version>
         <flatten-maven-plugin.version>1.6.0</flatten-maven-plugin.version>
         <jackson-databind.version>2.18.1</jackson-databind.version>
         <jackson-datatype-protobuf.version>0.9.18</jackson-datatype-protobuf.version>
