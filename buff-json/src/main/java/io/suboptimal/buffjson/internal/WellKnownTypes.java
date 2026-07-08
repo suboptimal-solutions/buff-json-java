@@ -363,10 +363,17 @@ public final class WellKnownTypes {
 		List<String> paths = (List<String>) message.getField(fields[0]);
 
 		StringBuilder sb = new StringBuilder(paths.size() * 16);
-		for (int i = 0; i < paths.size(); i++) {
-			if (i > 0)
+		boolean first = true;
+		for (String path : paths) {
+			// Empty paths select no field; JsonFormat/FieldMaskUtil.toJsonString
+			// drop them so the JSON string never contains empty segments.
+			if (path.isEmpty())
+				continue;
+			if (first)
+				first = false;
+			else
 				sb.append(',');
-			sb.append(snakeToCamel(paths.get(i)));
+			sb.append(snakeToCamel(path));
 		}
 		jsonWriter.writeString(sb.toString());
 	}
@@ -675,6 +682,10 @@ public final class WellKnownTypes {
 		FieldMask.Builder builder = FieldMask.newBuilder();
 		if (!camelCase.isEmpty()) {
 			for (String path : camelCase.split(",")) {
+				// Skip empty segments (leading/interior commas); matches
+				// JsonFormat/FieldMaskUtil.fromJsonString, which ignore them.
+				if (path.isEmpty())
+					continue;
 				builder.addPaths(camelToSnake(path));
 			}
 		}

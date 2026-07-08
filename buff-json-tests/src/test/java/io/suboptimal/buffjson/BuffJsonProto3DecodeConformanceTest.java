@@ -521,6 +521,25 @@ class BuffJsonProto3DecodeConformanceTest {
 		void emptyFieldMask() throws Exception {
 			assertDecodeMatchesOriginal(TestFieldMask.newBuilder().setValue(FieldMask.getDefaultInstance()).build());
 		}
+
+		@Test
+		void skipsEmptyPaths() throws Exception {
+			// Leading/interior empty segments must be dropped, not turned into empty
+			// paths — matching JsonFormat/FieldMaskUtil.fromJsonString.
+			assertFieldMaskDecodesLikeReference("{\"value\":\"foo,,bar\"}");
+			assertFieldMaskDecodesLikeReference("{\"value\":\",foo\"}");
+			assertFieldMaskDecodesLikeReference("{\"value\":\"foo,\"}");
+			assertFieldMaskDecodesLikeReference("{\"value\":\",\"}");
+			assertFieldMaskDecodesLikeReference("{\"value\":\",,\"}");
+		}
+
+		private void assertFieldMaskDecodesLikeReference(String json) throws Exception {
+			TestFieldMask.Builder ref = TestFieldMask.newBuilder();
+			JsonFormat.parser().merge(json, ref);
+			TestFieldMask expected = ref.build();
+			assertEquals(expected, CODEGEN_DECODER.decode(json, TestFieldMask.class), "codegen: " + json);
+			assertEquals(expected, RUNTIME_DECODER.decode(json, TestFieldMask.class), "runtime: " + json);
+		}
 	}
 
 	// =========================================================================

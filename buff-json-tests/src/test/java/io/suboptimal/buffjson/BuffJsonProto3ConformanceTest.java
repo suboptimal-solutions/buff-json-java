@@ -606,6 +606,18 @@ class BuffJsonProto3ConformanceTest {
 		void emptyFieldMask() throws Exception {
 			assertMatchesReference(TestFieldMask.newBuilder().setValue(FieldMask.getDefaultInstance()).build());
 		}
+
+		@Test
+		void skipsEmptyPaths() throws Exception {
+			// Empty path strings select no field; JsonFormat drops them so the JSON
+			// never contains empty segments (no ",,"/leading ","). We must match.
+			assertMatchesReference(TestFieldMask.newBuilder()
+					.setValue(FieldMask.newBuilder().addPaths("foo").addPaths("").addPaths("bar_baz")).build());
+			assertMatchesReference(
+					TestFieldMask.newBuilder().setValue(FieldMask.newBuilder().addPaths("").addPaths("foo")).build());
+			assertMatchesReference(
+					TestFieldMask.newBuilder().setValue(FieldMask.newBuilder().addPaths("").addPaths("")).build());
+		}
 	}
 
 	// =========================================================================
