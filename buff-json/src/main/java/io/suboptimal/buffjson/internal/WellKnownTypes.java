@@ -84,6 +84,9 @@ public final class WellKnownTypes {
 	private static final long DURATION_SECONDS_MIN = -315576000000L;
 	private static final long DURATION_SECONDS_MAX = 315576000000L;
 	private static final int NANOS_MAX = 999_999_999;
+	// Signed representation of the unsigned value 10^19. Negative uint64 values
+	// below this threshold have 19 decimal digits; the rest have 20.
+	private static final long UNSIGNED_10_POW_19 = -8446744073709551616L;
 
 	/**
 	 * Cached field descriptors for well-known types to avoid repeated
@@ -117,9 +120,16 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeAny(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
-		var fields = getFields(message, "type_url", "value");
-		String typeUrl = (String) message.getField(fields[0]);
-		ByteString content = (ByteString) message.getField(fields[1]);
+		String typeUrl;
+		ByteString content;
+		if (message instanceof Any any) {
+			typeUrl = any.getTypeUrl();
+			content = any.getValue();
+		} else {
+			var fields = getFieldPair(message, "type_url", "value");
+			typeUrl = (String) message.getField(fields[0]);
+			content = (ByteString) message.getField(fields[1]);
+		}
 
 		// Default Any (empty type_url and value) → empty object
 		if (typeUrl.isEmpty() && content.isEmpty()) {
@@ -173,7 +183,11 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeTimestamp(JSONWriter jsonWriter, Message message) {
-		var fields = getFields(message, "seconds", "nanos");
+		if (message instanceof Timestamp timestamp) {
+			writeTimestampDirect(jsonWriter, timestamp.getSeconds(), timestamp.getNanos());
+			return;
+		}
+		var fields = getFieldPair(message, "seconds", "nanos");
 		long seconds = (long) message.getField(fields[0]);
 		int nanos = (int) message.getField(fields[1]);
 		writeTimestampDirect(jsonWriter, seconds, nanos);
@@ -243,7 +257,11 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeDuration(JSONWriter jsonWriter, Message message) {
-		var fields = getFields(message, "seconds", "nanos");
+		if (message instanceof Duration duration) {
+			writeDurationDirect(jsonWriter, duration.getSeconds(), duration.getNanos());
+			return;
+		}
+		var fields = getFieldPair(message, "seconds", "nanos");
 		long seconds = (long) message.getField(fields[0]);
 		int nanos = (int) message.getField(fields[1]);
 		writeDurationDirect(jsonWriter, seconds, nanos);
@@ -302,10 +320,10 @@ public final class WellKnownTypes {
 			return;
 		}
 		// Negative signed = large unsigned: format into byte[] and write as Latin1
-		// Max unsigned long is 18446744073709551615 = 20 digits
-		byte[] buf = new byte[20];
-		int off = writeUnsignedLong(buf, 0, value);
-		buf = java.util.Arrays.copyOf(buf, off);
+		// without allocating a second trimmed copy.
+		int length = Long.compareUnsigned(value, UNSIGNED_10_POW_19) < 0 ? 19 : 20;
+		byte[] buf = new byte[length];
+		writeUnsignedLong(buf, 0, value);
 		jsonWriter.writeStringLatin1(buf);
 	}
 
@@ -358,9 +376,15 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeFieldMask(JSONWriter jsonWriter, Message message) {
-		var fields = getFields(message, "paths");
-		@SuppressWarnings("unchecked")
-		List<String> paths = (List<String>) message.getField(fields[0]);
+		List<String> paths;
+		if (message instanceof FieldMask fieldMask) {
+			paths = fieldMask.getPathsList();
+		} else {
+			var field = getField(message, "paths");
+			@SuppressWarnings("unchecked")
+			List<String> dynamicPaths = (List<String>) message.getField(field);
+			paths = dynamicPaths;
+		}
 
 		StringBuilder sb = new StringBuilder(paths.size() * 16);
 		boolean first = true;
@@ -379,23 +403,42 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeStruct(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
-		var fields = getFields(message, "fields");
-		@SuppressWarnings("unchecked")
-		List<Message> entries = (List<Message>) message.getField(fields[0]);
-
 		jsonWriter.startObject();
-		for (var entry : entries) {
-			var entryFields = getFields(entry, "key", "value");
-			String key = (String) entry.getField(entryFields[0]);
-			Message value = (Message) entry.getField(entryFields[1]);
-			jsonWriter.writeName(key);
-			jsonWriter.writeColon();
-			writeValue(jsonWriter, value, writer);
+		if (message instanceof Struct struct) {
+			for (var entry : struct.getFieldsMap().entrySet()) {
+				jsonWriter.writeName(entry.getKey());
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, entry.getValue(), writer);
+			}
+		} else {
+			var field = getField(message, "fields");
+			@SuppressWarnings("unchecked")
+			List<Message> entries = (List<Message>) message.getField(field);
+			for (var entry : entries) {
+				var entryFields = getFieldPair(entry, "key", "value");
+				String key = (String) entry.getField(entryFields[0]);
+				Message value = (Message) entry.getField(entryFields[1]);
+				jsonWriter.writeName(key);
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, value, writer);
+			}
 		}
 		jsonWriter.endObject();
 	}
 
 	private static void writeValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		if (message instanceof Value value) {
+			switch (value.getKindCase()) {
+				case NULL_VALUE, KIND_NOT_SET -> jsonWriter.writeNull();
+				case NUMBER_VALUE -> jsonWriter.writeDouble(value.getNumberValue());
+				case STRING_VALUE -> jsonWriter.writeString(value.getStringValue());
+				case BOOL_VALUE -> jsonWriter.writeBool(value.getBoolValue());
+				case STRUCT_VALUE -> writeStruct(jsonWriter, value.getStructValue(), writer);
+				case LIST_VALUE -> writeListValue(jsonWriter, value.getListValue(), writer);
+			}
+			return;
+		}
+
 		var desc = message.getDescriptorForType();
 		var kindOneof = desc.getOneofs().get(0);
 		var activeField = message.getOneofFieldDescriptor(kindOneof);
@@ -416,48 +459,99 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeListValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
-		var fields = getFields(message, "values");
-		@SuppressWarnings("unchecked")
-		List<Message> values = (List<Message>) message.getField(fields[0]);
-
 		jsonWriter.startArray();
-		for (int i = 0; i < values.size(); i++) {
-			if (i > 0)
-				jsonWriter.writeComma();
-			writeValue(jsonWriter, values.get(i), writer);
+		if (message instanceof ListValue listValue) {
+			for (int i = 0; i < listValue.getValuesCount(); i++) {
+				if (i > 0)
+					jsonWriter.writeComma();
+				writeValue(jsonWriter, listValue.getValues(i), writer);
+			}
+		} else {
+			var field = getField(message, "values");
+			@SuppressWarnings("unchecked")
+			List<Message> values = (List<Message>) message.getField(field);
+			for (int i = 0; i < values.size(); i++) {
+				if (i > 0)
+					jsonWriter.writeComma();
+				writeValue(jsonWriter, values.get(i), writer);
+			}
 		}
 		jsonWriter.endArray();
 	}
 
 	private static void writeWrapper(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		if (message instanceof DoubleValue value) {
+			FieldWriter.writeDoubleValue(jsonWriter, value.getValue());
+			return;
+		}
+		if (message instanceof FloatValue value) {
+			FieldWriter.writeFloatValue(jsonWriter, value.getValue());
+			return;
+		}
+		if (message instanceof Int64Value value) {
+			jsonWriter.writeString(value.getValue());
+			return;
+		}
+		if (message instanceof UInt64Value value) {
+			writeUnsignedLongString(jsonWriter, value.getValue());
+			return;
+		}
+		if (message instanceof Int32Value value) {
+			jsonWriter.writeInt32(value.getValue());
+			return;
+		}
+		if (message instanceof UInt32Value value) {
+			jsonWriter.writeInt64(Integer.toUnsignedLong(value.getValue()));
+			return;
+		}
+		if (message instanceof BoolValue value) {
+			jsonWriter.writeBool(value.getValue());
+			return;
+		}
+		if (message instanceof StringValue value) {
+			jsonWriter.writeString(value.getValue());
+			return;
+		}
+		if (message instanceof BytesValue value) {
+			jsonWriter.writeBase64(value.getValue().toByteArray());
+			return;
+		}
+
 		// Wrapper types have a single "value" field — delegate to FieldWriter
 		// which already handles unsigned formatting, NaN/Infinity, Base64, etc.
-		var fields = getFields(message, "value");
-		FieldWriter.writeValue(jsonWriter, fields[0], message.getField(fields[0]), writer);
+		var field = getField(message, "value");
+		FieldWriter.writeValue(jsonWriter, field, message.getField(field), writer);
 	}
 
 	/**
-	 * Looks up and caches field descriptors for a well-known type message by name.
-	 * Avoids repeated {@code findFieldByName()} calls on the hot path.
+	 * Looks up and caches the sole field descriptor for a well-known type. The
+	 * fixed-arity signature avoids allocating a varargs array on every cache hit.
+	 */
+	private static FieldDescriptor getField(Message message, String name) {
+		var desc = message.getDescriptorForType();
+		var cached = WKT_FIELD_CACHE.get(desc);
+		if (cached != null) {
+			return cached[0];
+		}
+		return WKT_FIELD_CACHE.computeIfAbsent(desc, d -> new FieldDescriptor[]{d.findFieldByName(name)})[0];
+	}
+
+	/**
+	 * Looks up and caches two field descriptors for a well-known type. The
+	 * fixed-arity signature avoids allocating a varargs array on every cache hit.
 	 *
 	 * <p>
 	 * Each WKT Descriptor must always be called with the same {@code names} — the
 	 * cache is keyed by Descriptor alone.
 	 */
-	private static FieldDescriptor[] getFields(Message message, String... names) {
+	private static FieldDescriptor[] getFieldPair(Message message, String firstName, String secondName) {
 		var desc = message.getDescriptorForType();
-		// Fast path: avoid varargs-driven computeIfAbsent on cache hit
 		var cached = WKT_FIELD_CACHE.get(desc);
 		if (cached != null) {
 			return cached;
 		}
-		return WKT_FIELD_CACHE.computeIfAbsent(desc, d -> {
-			FieldDescriptor[] result = new FieldDescriptor[names.length];
-			for (int i = 0; i < names.length; i++) {
-				result[i] = d.findFieldByName(names[i]);
-			}
-			return result;
-		});
+		return WKT_FIELD_CACHE.computeIfAbsent(desc,
+				d -> new FieldDescriptor[]{d.findFieldByName(firstName), d.findFieldByName(secondName)});
 	}
 
 	/**

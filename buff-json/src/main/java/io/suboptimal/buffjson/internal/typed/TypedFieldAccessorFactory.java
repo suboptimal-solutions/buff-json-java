@@ -19,6 +19,8 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.OneofDescriptor;
 import com.google.protobuf.Message;
 
+import io.suboptimal.buffjson.internal.WellKnownTypes;
+
 /**
  * Creates {@link TypedFieldAccessor} instances for protobuf fields using
  * {@link LambdaMetafactory}. Each accessor calls the typed getter directly
@@ -170,7 +172,8 @@ public final class TypedFieldAccessorFactory {
 			case MESSAGE -> {
 				var getter = createObjectGetter(messageClass, getterName);
 				var has = createPredicate(messageClass, hasName);
-				yield new TypedFieldAccessor.PresenceMessageAccessor(castFunction(getter), has, name);
+				boolean wellKnown = WellKnownTypes.isWellKnownType(fd.getMessageType());
+				yield new TypedFieldAccessor.PresenceMessageAccessor(castFunction(getter), has, wellKnown, name);
 			}
 		};
 	}
@@ -196,7 +199,8 @@ public final class TypedFieldAccessorFactory {
 			case INT -> new TypedFieldAccessor.RepeatedIntAccessor(listGetter, isUnsigned32(fd), name);
 			case LONG -> new TypedFieldAccessor.RepeatedLongAccessor(listGetter, isUnsigned64(fd), name);
 			case STRING -> new TypedFieldAccessor.RepeatedStringAccessor(listGetter, name);
-			case MESSAGE -> new TypedFieldAccessor.RepeatedMessageAccessor(listGetter, name);
+			case MESSAGE -> new TypedFieldAccessor.RepeatedMessageAccessor(listGetter,
+					WellKnownTypes.isWellKnownType(fd.getMessageType()), name);
 			default -> new TypedFieldAccessor.RepeatedAccessor(listGetter, fd, name);
 		};
 	}
@@ -209,7 +213,6 @@ public final class TypedFieldAccessorFactory {
 		FieldName name = fieldName(fd.getJsonName());
 		FieldDescriptor keyFd = fd.getMessageType().findFieldByName("key");
 		FieldDescriptor valueFd = fd.getMessageType().findFieldByName("value");
-		boolean stringKey = keyFd.getJavaType() == FieldDescriptor.JavaType.STRING;
 
 		// Use typed map getter via LambdaMetafactory (avoids getField reflection).
 		// For enum-valued maps, use ValueMap() getter which returns Map<K, Integer>.
@@ -222,7 +225,7 @@ public final class TypedFieldAccessorFactory {
 		try {
 			var mapGetter = (Function<Message, java.util.Map<?, ?>>) (Function<?, ?>) createObjectGetter(messageClass,
 					mapGetterName);
-			return new TypedFieldAccessor.TypedMapAccessor(mapGetter, valueFd, stringKey, name);
+			return new TypedFieldAccessor.TypedMapAccessor(mapGetter, keyFd, valueFd, name);
 		} catch (NoSuchMethodException e) {
 			// Fallback: use getField(fd) for unusual cases (custom protoc output)
 			Function<Message, List<?>> entriesGetter = msg -> (List<?>) msg.getField(fd);

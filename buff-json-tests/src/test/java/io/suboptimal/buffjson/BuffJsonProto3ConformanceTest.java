@@ -90,6 +90,14 @@ class BuffJsonProto3ConformanceTest {
 		}
 
 		@Test
+		void unsigned64DigitBoundary() throws Exception {
+			long last19Digit = Long.parseUnsignedLong("9999999999999999999");
+			long first20Digit = Long.parseUnsignedLong("10000000000000000000");
+			assertMatchesReference(TestAllScalars.newBuilder().setOptionalUint64(last19Digit).build());
+			assertMatchesReference(TestAllScalars.newBuilder().setOptionalUint64(first20Digit).build());
+		}
+
+		@Test
 		void negativeNumbers() throws Exception {
 			assertMatchesReference(TestAllScalars.newBuilder().setOptionalInt32(-1).setOptionalInt64(-1L)
 					.setOptionalSint32(-1).setOptionalSint64(-1L).setOptionalSfixed32(-1).setOptionalSfixed64(-1L)
@@ -335,6 +343,13 @@ class BuffJsonProto3ConformanceTest {
 					.putSint32ToString(-1, "negative").putSint64ToString(-100L, "neg hundred")
 					.putFixed32ToString(10, "fixed").putFixed64ToString(20L, "fixed64")
 					.putSfixed32ToString(-10, "sfixed").putSfixed64ToString(-20L, "sfixed64").build());
+		}
+
+		@Test
+		void unsignedKeyBoundaries() throws Exception {
+			assertMatchesReference(
+					TestMaps.newBuilder().putUint32ToString(-1, "uint32 max").putFixed32ToString(-1, "fixed32 max")
+							.putUint64ToString(-1L, "uint64 max").putFixed64ToString(-1L, "fixed64 max").build());
 		}
 
 		@Test

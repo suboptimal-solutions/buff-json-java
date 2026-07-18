@@ -28,6 +28,9 @@ import com.google.protobuf.Descriptors.OneofDescriptor;
  * <li><b>Pre-cached enum name arrays</b> — static {@code String[]} built from
  * enum descriptor values at class init, replacing
  * {@code forNumber()+getValueDescriptor().getName()} per write
+ * <li><b>Primitive repeated access</b> — uses generated
+ * {@code getFooCount()}/{@code getFoo(i)} accessors instead of boxed
+ * {@code List<Integer/Long/...>} reads
  * <li><b>String map key optimization</b> — avoids redundant {@code toString()}
  * for String-typed map keys
  * <li><b>Native fastjson2 Base64</b> — uses {@code writeBase64(byte[])} for
@@ -280,41 +283,37 @@ final class EncoderGenerator {
 			Map<String, String> protoToJavaClass, Map<String, String> protoToEncoderClass) {
 
 		String constName = "NAME_" + constantName(fd);
-
-		// For enums, use raw int value list to handle UNRECOGNIZED constants
-		String listGetter;
-		String elementType;
-		if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
-			listGetter = "message." + getterName(fd) + "ValueList()";
-			elementType = "Integer";
-		} else {
-			listGetter = "message." + getterName(fd) + "List()";
-			elementType = javaBoxedType(fd, protoToJavaClass);
-		}
+		String countGetter = "message." + getterName(fd) + "Count()";
+		// For enums, use the raw int value getter to handle UNRECOGNIZED constants.
+		// Indexed generated accessors avoid List<Integer/Long/...>.get(i) boxing for
+		// primitive repeated fields and skip a List interface call for all other types.
+		String elementGetter = "message." + getterName(fd)
+				+ (fd.getJavaType() == FieldDescriptor.JavaType.ENUM ? "Value(i)" : "(i)");
 
 		sb.append("        {\n");
-		sb.append("            java.util.List<").append(elementType).append("> values = ").append(listGetter)
-				.append(";\n");
-		sb.append("            if (!values.isEmpty()) {\n");
+		sb.append("            int count = ").append(countGetter).append(";\n");
+		sb.append("            if (count != 0) {\n");
 		emitWriteName(sb, constName, "                ");
 		sb.append("                jsonWriter.startArray();\n");
-		sb.append("                for (int i = 0; i < values.size(); i++) {\n");
+		sb.append("                for (int i = 0; i < count; i++) {\n");
 		sb.append("                    if (i > 0) jsonWriter.writeComma();\n");
 
 		switch (fd.getJavaType()) {
-			case INT -> writeIntValue(sb, fd, "values.get(i)");
-			case LONG -> writeLongValue(sb, fd, "values.get(i)");
-			case FLOAT -> writeFloatValue(sb, "values.get(i)");
-			case DOUBLE -> writeDoubleValue(sb, "values.get(i)");
-			case BOOLEAN -> sb.append("                    jsonWriter.writeBool(values.get(i));\n");
-			case STRING -> sb.append("                    jsonWriter.writeString(values.get(i));\n");
-			case BYTE_STRING -> sb.append("                    jsonWriter.writeBase64(values.get(i).toByteArray());\n");
+			case INT -> writeIntValue(sb, fd, elementGetter);
+			case LONG -> writeLongValue(sb, fd, elementGetter);
+			case FLOAT -> writeFloatValue(sb, elementGetter);
+			case DOUBLE -> writeDoubleValue(sb, elementGetter);
+			case BOOLEAN -> sb.append("                    jsonWriter.writeBool(").append(elementGetter).append(");\n");
+			case STRING ->
+				sb.append("                    jsonWriter.writeString(").append(elementGetter).append(");\n");
+			case BYTE_STRING -> sb.append("                    jsonWriter.writeBase64(").append(elementGetter)
+					.append(".toByteArray());\n");
 			case ENUM -> {
-				// Use raw int values to handle UNRECOGNIZED enum constants
-				// (which throw from getNumber()/getValueDescriptor())
-				writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), "values.get(i)");
+				// Use raw int values to handle UNRECOGNIZED enum constants (which throw
+				// from getNumber()/getValueDescriptor()).
+				writeEnumValue(sb, enumArrayConstant(fd), enumJavaClass(fd, protoToJavaClass), elementGetter);
 			}
-			case MESSAGE -> writeMessageValue(sb, fd, "values.get(i)", protoToJavaClass, protoToEncoderClass);
+			case MESSAGE -> writeMessageValue(sb, fd, elementGetter, protoToJavaClass, protoToEncoderClass);
 		}
 
 		sb.append("                }\n");
@@ -351,13 +350,10 @@ final class EncoderGenerator {
 		sb.append("            if (!map.isEmpty()) {\n");
 		emitWriteName(sb, constName, "                ");
 		sb.append("                jsonWriter.startObject();\n");
+		sb.append("                boolean first = true;\n");
 		sb.append("                for (var entry : map.entrySet()) {\n");
-		if (keyFd.getJavaType() == FieldDescriptor.JavaType.STRING) {
-			// Key is already String — call writeName directly without toString()
-			sb.append("                    jsonWriter.writeName(entry.getKey());\n");
-		} else {
-			sb.append("                    jsonWriter.writeName(entry.getKey().toString());\n");
-		}
+		sb.append("                    if (first) first = false; else jsonWriter.writeComma();\n");
+		writeMapKey(sb, keyFd, "entry.getKey()");
 		sb.append("                    jsonWriter.writeColon();\n");
 
 		switch (valueFd.getJavaType()) {
@@ -447,6 +443,33 @@ final class EncoderGenerator {
 					.append(expr).append(");\n");
 		} else {
 			sb.append("                jsonWriter.writeString(").append(expr).append(");\n");
+		}
+	}
+
+	private static void writeMapKey(StringBuilder sb, FieldDescriptor fd, String expr) {
+		switch (fd.getJavaType()) {
+			case INT -> {
+				var type = fd.getType();
+				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32) {
+					sb.append("                    jsonWriter.writeString(Integer.toUnsignedLong(").append(expr)
+							.append("));\n");
+				} else {
+					sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+				}
+			}
+			case LONG -> {
+				var type = fd.getType();
+				if (type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64) {
+					sb.append(
+							"                    io.suboptimal.buffjson.internal.WellKnownTypes.writeUnsignedLongString(jsonWriter, ")
+							.append(expr).append(");\n");
+				} else {
+					sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+				}
+			}
+			case BOOLEAN -> sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+			case STRING -> sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+			default -> throw new IllegalArgumentException("Unsupported map key type: " + fd.getJavaType());
 		}
 	}
 

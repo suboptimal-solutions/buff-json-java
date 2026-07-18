@@ -177,12 +177,68 @@ public final class FieldWriter {
 		var keyFd = entryDesc.findFieldByName("key");
 		var valueFd = entryDesc.findFieldByName("value");
 		jsonWriter.startObject();
+		boolean first = true;
 		for (Object entry : entries) {
 			Message entryMsg = (Message) entry;
-			jsonWriter.writeName(entryMsg.getField(keyFd).toString());
+			if (first)
+				first = false;
+			else
+				jsonWriter.writeComma();
+			writeMapKey(jsonWriter, keyFd, entryMsg.getField(keyFd));
 			jsonWriter.writeColon();
 			writeValue(jsonWriter, valueFd, entryMsg.getField(valueFd), writer);
 		}
 		jsonWriter.endObject();
+	}
+
+	/**
+	 * Writes a map field through protobuf's indexed reflection API. Generated
+	 * messages otherwise copy every map entry into a new unmodifiable {@link List}
+	 * when {@link Message#getField(FieldDescriptor)} is used.
+	 */
+	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, Message message,
+			FieldDescriptor mapDescriptor, int count, ProtobufMessageWriter writer) {
+		var entryDesc = valueDescriptor.getContainingType();
+		var keyFd = entryDesc.findFieldByName("key");
+		var valueFd = entryDesc.findFieldByName("value");
+		jsonWriter.startObject();
+		for (int i = 0; i < count; i++) {
+			if (i > 0)
+				jsonWriter.writeComma();
+			Message entry = (Message) message.getRepeatedField(mapDescriptor, i);
+			writeMapKey(jsonWriter, keyFd, entry.getField(keyFd));
+			jsonWriter.writeColon();
+			writeValue(jsonWriter, valueFd, entry.getField(valueFd), writer);
+		}
+		jsonWriter.endObject();
+	}
+
+	/**
+	 * Writes a protobuf map key as a quoted JSON object key without allocating an
+	 * intermediate {@link String}. The caller is responsible for writing any
+	 * leading comma and the trailing colon.
+	 */
+	public static void writeMapKey(JSONWriter jsonWriter, FieldDescriptor keyDescriptor, Object key) {
+		switch (keyDescriptor.getJavaType()) {
+			case INT -> {
+				int value = (int) key;
+				var type = keyDescriptor.getType();
+				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32)
+					jsonWriter.writeString(Integer.toUnsignedLong(value));
+				else
+					jsonWriter.writeString(value);
+			}
+			case LONG -> {
+				long value = (long) key;
+				var type = keyDescriptor.getType();
+				if (type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64)
+					WellKnownTypes.writeUnsignedLongString(jsonWriter, value);
+				else
+					jsonWriter.writeString(value);
+			}
+			case BOOLEAN -> jsonWriter.writeString((boolean) key);
+			case STRING -> jsonWriter.writeString((String) key);
+			default -> throw new IllegalArgumentException("Unsupported map key type: " + keyDescriptor.getJavaType());
+		}
 	}
 }
