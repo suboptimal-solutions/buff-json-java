@@ -309,7 +309,7 @@ buff-json/
 |                  Dependency                   | Version |                Purpose                 |           Module(s)           |
 |-----------------------------------------------|---------|----------------------------------------|-------------------------------|
 | `com.google.protobuf:protobuf-java`           | 4.34.1  | Protobuf runtime (Message, Descriptor) | core, schema, jackson, plugin |
-| `com.alibaba.fastjson2:fastjson2`             | 2.0.61  | JSON writing engine                    | core, jackson                 |
+| `com.alibaba.fastjson2:fastjson2`             | 2.0.63  | JSON writing engine                    | core, jackson                 |
 | `com.fasterxml.jackson.core:jackson-databind` | 2.18.1  | Jackson ObjectMapper integration       | jackson                       |
 | `io.swagger.core.v3:swagger-core-jakarta`     | 2.2.38  | Swagger/OpenAPI ModelConverter         | swagger                       |
 
