@@ -7,6 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 
+import io.suboptimal.buffjson.internal.typed.FieldName;
+
 /**
  * Cached metadata for a protobuf message type, built from its
  * {@link Descriptor}.
@@ -73,53 +75,24 @@ public final class MessageSchema {
 	public static final class FieldInfo {
 		private final FieldDescriptor descriptor;
 		private final String jsonName;
-		private final char[] nameWithColon;
-		private final byte[] nameWithColonUtf8;
+		private final FieldName name;
 		private final FieldDescriptor.JavaType javaType;
 		private final boolean isRepeated;
 		private final boolean isMapField;
 		private final boolean hasPresence;
+		private final FieldDescriptor mapKeyDescriptor;
 		private final FieldDescriptor mapValueDescriptor;
 
 		FieldInfo(FieldDescriptor fd) {
 			this.descriptor = fd;
 			this.jsonName = fd.getJsonName();
-			this.nameWithColon = buildNameWithColon(this.jsonName);
-			this.nameWithColonUtf8 = buildNameWithColonUtf8(this.jsonName);
+			this.name = FieldName.of(this.jsonName);
 			this.javaType = fd.getJavaType();
 			this.isRepeated = fd.isRepeated();
 			this.isMapField = fd.isMapField();
 			this.hasPresence = fd.hasPresence();
+			this.mapKeyDescriptor = fd.isMapField() ? fd.getMessageType().findFieldByName("key") : null;
 			this.mapValueDescriptor = fd.isMapField() ? fd.getMessageType().findFieldByName("value") : null;
-		}
-
-		/**
-		 * Pre-computes {@code "fieldName":} as a char array for the UTF-16
-		 * {@link com.alibaba.fastjson2.JSONWriter#writeNameRaw(char[])} path. Protobuf
-		 * JSON field names are always ASCII.
-		 */
-		private static char[] buildNameWithColon(String name) {
-			char[] chars = new char[name.length() + 3];
-			chars[0] = '"';
-			name.getChars(0, name.length(), chars, 1);
-			chars[name.length() + 1] = '"';
-			chars[name.length() + 2] = ':';
-			return chars;
-		}
-
-		/**
-		 * Pre-computes {@code "fieldName":} as a byte array for the UTF-8
-		 * {@link com.alibaba.fastjson2.JSONWriter#writeNameRaw(byte[])} path, avoiding
-		 * char→byte transcoding per field write. ASCII-only.
-		 */
-		private static byte[] buildNameWithColonUtf8(String name) {
-			byte[] bytes = new byte[name.length() + 3];
-			bytes[0] = '"';
-			for (int i = 0; i < name.length(); i++)
-				bytes[i + 1] = (byte) name.charAt(i);
-			bytes[name.length() + 1] = '"';
-			bytes[name.length() + 2] = ':';
-			return bytes;
 		}
 
 		public FieldDescriptor descriptor() {
@@ -130,12 +103,17 @@ public final class MessageSchema {
 			return jsonName;
 		}
 
+		/** Pre-encoded {@code "fieldName":} in both writer encodings. */
+		public FieldName name() {
+			return name;
+		}
+
 		public char[] nameWithColon() {
-			return nameWithColon;
+			return name.chars();
 		}
 
 		public byte[] nameWithColonUtf8() {
-			return nameWithColonUtf8;
+			return name.utf8();
 		}
 
 		public FieldDescriptor.JavaType javaType() {
@@ -152,6 +130,14 @@ public final class MessageSchema {
 
 		public boolean hasPresence() {
 			return hasPresence;
+		}
+
+		/**
+		 * The synthetic map-entry {@code key} field, resolved once here so the write
+		 * path never calls {@code findFieldByName} per map write.
+		 */
+		public FieldDescriptor mapKeyDescriptor() {
+			return mapKeyDescriptor;
 		}
 
 		public FieldDescriptor mapValueDescriptor() {

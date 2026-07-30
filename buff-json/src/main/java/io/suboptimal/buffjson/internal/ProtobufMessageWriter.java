@@ -115,7 +115,6 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 
 		var schema = MessageSchema.forDescriptor(message.getDescriptorForType());
 		var fields = schema.fields();
-		boolean utf8 = jsonWriter.isUTF8();
 
 		for (var fieldInfo : fields) {
 			FieldDescriptor fd = fieldInfo.descriptor();
@@ -124,33 +123,30 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				List<?> entries = (List<?>) message.getField(fd);
 				if (entries.isEmpty())
 					continue;
-				writeName(jsonWriter, fieldInfo, utf8);
-				FieldWriter.writeMap(jsonWriter, fieldInfo.mapValueDescriptor(), entries, this);
+				fieldInfo.name().writeTo(jsonWriter);
+				FieldWriter.writeMap(jsonWriter, fieldInfo.mapKeyDescriptor(), fieldInfo.mapValueDescriptor(), entries,
+						this);
 			} else if (fieldInfo.isRepeated()) {
 				List<?> values = (List<?>) message.getField(fd);
 				if (values.isEmpty())
 					continue;
-				writeName(jsonWriter, fieldInfo, utf8);
+				fieldInfo.name().writeTo(jsonWriter);
 				FieldWriter.writeRepeated(jsonWriter, fd, values, this);
+			} else if (fieldInfo.hasPresence()) {
+				// hasField first: getField on an absent field boxes a value we would
+				// throw away (and materializes a default instance for message fields).
+				if (!message.hasField(fd))
+					continue;
+				fieldInfo.name().writeTo(jsonWriter);
+				FieldWriter.writeValue(jsonWriter, fd, message.getField(fd), this);
 			} else {
 				Object value = message.getField(fd);
-				if (fieldInfo.hasPresence()) {
-					if (!message.hasField(fd))
-						continue;
-				} else if (isDefaultValue(fieldInfo, value)) {
+				if (isDefaultValue(fieldInfo, value))
 					continue;
-				}
-				writeName(jsonWriter, fieldInfo, utf8);
+				fieldInfo.name().writeTo(jsonWriter);
 				FieldWriter.writeValue(jsonWriter, fd, value, this);
 			}
 		}
-	}
-
-	private static void writeName(JSONWriter jsonWriter, MessageSchema.FieldInfo fieldInfo, boolean utf8) {
-		if (utf8)
-			jsonWriter.writeNameRaw(fieldInfo.nameWithColonUtf8());
-		else
-			jsonWriter.writeNameRaw(fieldInfo.nameWithColon());
 	}
 
 	private static boolean isDefaultValue(MessageSchema.FieldInfo fieldInfo, Object value) {

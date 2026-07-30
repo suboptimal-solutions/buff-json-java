@@ -12,6 +12,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.OneofDescriptor;
+import com.google.protobuf.Internal;
 import com.google.protobuf.Message;
 
 import io.suboptimal.buffjson.internal.FieldWriter;
@@ -308,17 +309,33 @@ public sealed interface TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Integer> values = (List<Integer>) (List<?>) listGetter.apply(msg);
-			if (values.isEmpty())
+			int n = values.size();
+			if (n == 0)
 				return;
 			name.writeTo(jw);
 			jw.startArray();
-			for (int i = 0; i < values.size(); i++) {
-				if (i > 0)
-					jw.writeComma();
-				if (unsigned)
-					jw.writeInt64(Integer.toUnsignedLong(values.get(i)));
-				else
-					jw.writeInt32(values.get(i));
+			// protobuf-java backs repeated int32 with Internal.IntList; going through
+			// List.get(i) would box every element (Integer.valueOf allocates outside
+			// the -128..127 cache).
+			if (values instanceof Internal.IntList ints) {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					int v = ints.getInt(i);
+					if (unsigned)
+						jw.writeInt64(Integer.toUnsignedLong(v));
+					else
+						jw.writeInt32(v);
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					if (unsigned)
+						jw.writeInt64(Integer.toUnsignedLong(values.get(i)));
+					else
+						jw.writeInt32(values.get(i));
+				}
 			}
 			jw.endArray();
 		}
@@ -330,17 +347,111 @@ public sealed interface TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<Long> values = (List<Long>) (List<?>) listGetter.apply(msg);
-			if (values.isEmpty())
+			int n = values.size();
+			if (n == 0)
 				return;
 			name.writeTo(jw);
 			jw.startArray();
-			for (int i = 0; i < values.size(); i++) {
-				if (i > 0)
-					jw.writeComma();
-				if (unsigned)
-					WellKnownTypes.writeUnsignedLongString(jw, values.get(i));
-				else
-					jw.writeString(values.get(i));
+			if (values instanceof Internal.LongList longs) {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					long v = longs.getLong(i);
+					if (unsigned)
+						WellKnownTypes.writeUnsignedLongString(jw, v);
+					else
+						jw.writeString(v);
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					if (unsigned)
+						WellKnownTypes.writeUnsignedLongString(jw, values.get(i));
+					else
+						jw.writeString((long) values.get(i));
+				}
+			}
+			jw.endArray();
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	record RepeatedDoubleAccessor(Function<Message, List<?>> listGetter, FieldName name) implements TypedFieldAccessor {
+		@Override
+		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
+			List<Double> values = (List<Double>) (List<?>) listGetter.apply(msg);
+			int n = values.size();
+			if (n == 0)
+				return;
+			name.writeTo(jw);
+			jw.startArray();
+			if (values instanceof Internal.DoubleList doubles) {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					FieldWriter.writeDoubleValue(jw, doubles.getDouble(i));
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					FieldWriter.writeDoubleValue(jw, values.get(i));
+				}
+			}
+			jw.endArray();
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	record RepeatedFloatAccessor(Function<Message, List<?>> listGetter, FieldName name) implements TypedFieldAccessor {
+		@Override
+		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
+			List<Float> values = (List<Float>) (List<?>) listGetter.apply(msg);
+			int n = values.size();
+			if (n == 0)
+				return;
+			name.writeTo(jw);
+			jw.startArray();
+			if (values instanceof Internal.FloatList floats) {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					FieldWriter.writeFloatValue(jw, floats.getFloat(i));
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					FieldWriter.writeFloatValue(jw, values.get(i));
+				}
+			}
+			jw.endArray();
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	record RepeatedBoolAccessor(Function<Message, List<?>> listGetter, FieldName name) implements TypedFieldAccessor {
+		@Override
+		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
+			List<Boolean> values = (List<Boolean>) (List<?>) listGetter.apply(msg);
+			int n = values.size();
+			if (n == 0)
+				return;
+			name.writeTo(jw);
+			jw.startArray();
+			if (values instanceof Internal.BooleanList bools) {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					jw.writeBool(bools.getBoolean(i));
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					if (i > 0)
+						jw.writeComma();
+					jw.writeBool(values.get(i));
+				}
 			}
 			jw.endArray();
 		}
@@ -354,13 +465,9 @@ public sealed interface TypedFieldAccessor {
 			if (values.isEmpty())
 				return;
 			name.writeTo(jw);
-			jw.startArray();
-			for (int i = 0; i < values.size(); i++) {
-				if (i > 0)
-					jw.writeComma();
-				jw.writeString(values.get(i));
-			}
-			jw.endArray();
+			// fastjson2 writes the whole array — brackets, commas and per-element
+			// escaping — in one call, with a single capacity check up front.
+			jw.writeString(values);
 		}
 	}
 
@@ -411,15 +518,15 @@ public sealed interface TypedFieldAccessor {
 
 	// --- Map fields ---
 
-	record MapAccessor(Function<Message, List<?>> entriesGetter, FieldDescriptor mapValueDescriptor,
-			FieldName name) implements TypedFieldAccessor {
+	record MapAccessor(Function<Message, List<?>> entriesGetter, FieldDescriptor mapKeyDescriptor,
+			FieldDescriptor mapValueDescriptor, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<?> entries = entriesGetter.apply(msg);
 			if (entries.isEmpty())
 				return;
 			name.writeTo(jw);
-			FieldWriter.writeMap(jw, mapValueDescriptor, entries, writer);
+			FieldWriter.writeMap(jw, mapKeyDescriptor, mapValueDescriptor, entries, writer);
 		}
 	}
 

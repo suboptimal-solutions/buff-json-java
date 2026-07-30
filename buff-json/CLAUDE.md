@@ -24,8 +24,12 @@ io.suboptimal.buffjson.internal/
   ProtobufMessageWriter.java       # Three-tier dispatch in writeFields(): codec-holder → typed-accessor → reflection
   ProtobufMessageReader.java       # Stateful instance holding TypeRegistry + useGenerated. Main deserialization logic.
   GeneratedDecoderRegistry.java    # Simple ConcurrentHashMap<Descriptor, Decoder> cache for descriptor-only decode path
-  MessageSchema.java               # Cached FieldInfo[] per Descriptor (reflection path); each FieldInfo carries
-                                   #   both char[] nameWithColon and byte[] nameWithColonUtf8 for UTF-8 dispatch
+  FieldNames.java                  # Packs a jsonName into the long/int words fastjson2's writeName<n>Raw family takes
+                                   #   (native-order reads out of the literal `"name":`; offset 1 for lengths 8 and 16).
+                                   #   Same constants serve UTF-8 and UTF-16 writers. Also builds the char[]/byte[]
+                                   #   fallbacks, gates them via isRawWritable, and escapes names for generated source.
+  MessageSchema.java               # Cached FieldInfo[] per Descriptor (reflection path); each FieldInfo carries a
+                                   #   FieldName plus the pre-resolved map key/value FieldDescriptors
   FieldWriter.java                 # Type-dispatched value writing (scalars, maps, repeated) for the reflection path.
                                    #   Float/double NaN/Inf branches reordered isFinite-first.
   FieldReader.java                 # Type-dispatched value reading (scalars, maps, repeated)
@@ -35,7 +39,10 @@ io.suboptimal.buffjson.internal/
                                    #   writeUnsignedLongString() — zero-alloc unsigned int64 formatting.
 
 io.suboptimal.buffjson.internal.typed/
-  FieldName.java                   # Record (char[] chars, byte[] utf8). writeTo(JSONWriter) dispatches on isUTF8().
+  FieldName.java                   # Pre-encoded name shared by the typed and reflection paths. writeTo(JSONWriter)
+                                   #   dispatches on isUTF8() -> writeNameRaw(byte[]/char[]); a json_name that is not
+                                   #   raw-writable (non-ASCII/escapable) goes via writeName(String) + writeColon().
+                                   #   The word-packed writeName<n>Raw path is codegen-only — see the javadoc.
   TypedFieldAccessor.java          # Sealed interface, ~20 record variants (IntAccessor, LongAccessor, ...,
                                    #   PresenceMessageAccessor, RepeatedIntAccessor, RepeatedEnumAccessor,
                                    #   MapAccessor, TypedMapAccessor, etc.). Each variant holds pre-bound
@@ -52,7 +59,7 @@ io.suboptimal.buffjson.internal.typed/
 ## Serialization Flow (hot path)
 
 1. `BuffJsonEncoder.encode(message)`:
-   - Creates `JSONWriter` directly via `JSONWriter.of()` (bypasses fastjson2 module dispatch).
+   - Creates `JSONWriter` directly via `JSONWriter.of(writeContext)` (bypasses fastjson2 module dispatch). `writeContext` is one `JSONFactory.createWriteContext()` per encoder — `JSONWriter.of()` would otherwise allocate a fresh `Context` per call for configuration that never changes.
    - Reuses cached `ProtobufMessageWriter(typeRegistry, useGenerated, useTyped)` (volatile field on encoder; invalidated on setters).
    - Calls `writer.writeMessage(jsonWriter, message)`.
 2. `ProtobufMessageWriter.writeFields(jsonWriter, message)` — three-tier dispatch:
@@ -61,21 +68,27 @@ io.suboptimal.buffjson.internal.typed/
      - Nested messages call other encoders directly via `INSTANCE.writeFields(jw, msg, writer)` (no registry, no instanceof per nested).
      - Timestamp/Duration fields call `writeTimestampDirect()`/`writeDurationDirect()`.
      - Enum fields use pre-cached `String[]` name arrays.
-     - Field-name writes dispatch on `boolean utf8 = jsonWriter.isUTF8()` hoisted at the top of `writeFields`.
+     - Field-name writes are `jsonWriter.writeName<n>Raw(NAME_X_W0[, ...])` — the name is already in machine words, so no `isUTF8()` branch and no `arraycopy`. The `boolean utf8` local and the `char[]`/`byte[]` constants are emitted only when some field has an unpackable `json_name`.
+     - Repeated numeric/bool fields narrow to `Internal.IntList`/`LongList`/`DoubleList`/`FloatList`/`BooleanList` and read primitives (no per-element boxing); repeated strings go through `jsonWriter.writeString(values)` in one call.
+     - Wrapper WKT fields (`Int32Value`, `StringValue`, …) emit the typed `getValue()` write directly.
      - Returns — never falls through.
    - **Tier 2 — Typed-accessor** (if `useTyped && !(message instanceof DynamicMessage)`):
      - `TypedMessageSchema.forMessage(descriptor, msg.getClass()).writeFields(jw, msg, this)` → LambdaMetafactory-bound typed getters.
      - First call per Descriptor: `TypedFieldAccessorFactory.create(...)` discovers `getXxx`/`hasXxx`/`getXxxList`/`getXxxValueList`/`getXxxMap`/`getXxxValueMap` by name reflection, then binds via `LambdaMetafactory.metafactory(...)` to `ToIntFunction<Message>`, `ToLongFunction<Message>`, `Predicate<Message>`, `Function<Message, Object>`, etc. Builds a single `TypedFieldAccessor[]` in field-number order, with each oneof represented by an `OneofAccessor` placed at its first-declared member (so output order matches `JsonFormat`). Cached.
      - On any failure (e.g., `DynamicMessage`, custom protoc, missing accessor), returns `null` — schema goes to `FAILED` sentinel; falls through to Tier 3.
      - **Getter-name resolution must match protoc exactly** or binding fails and the whole message silently drops to Tier 3. Two easy-to-miss cases: (1) `float` getters — pass the **direct** `(Msg)float` handle to `metafactory` and let it widen `float`→`double`; pre-adapting with `explicitCastArguments` yields a non-direct handle metafactory rejects (this had been sinking every float-containing message to reflection). (2) digit-containing field names — `toCamelCase` capitalizes after a digit (`field0name5` → `getField0Name5`), matching protobuf.
+     - Repeated numeric/bool accessors (`RepeatedInt/Long/Double/Float/BoolAccessor`) narrow to the matching `Internal.*List` and read primitives, so no element is boxed; `RepeatedStringAccessor` hands the whole list to `jw.writeString(List<String>)`.
      - Enum accessors hold the dense name array **and** the `EnumDescriptor`: the array is the fast path; negative/sparse numbers fall back to `findValueByNumber` (so `NEG = -1` → name); `NullValue` enums write JSON `null`.
      - Returns once schema runs successfully.
    - **Tier 3 — Pure reflection** (fallback):
      - Iterates cached `MessageSchema.FieldInfo[]` (no `getAllFields()` TreeMap).
      - `Object value = message.getField(fd)` (boxes primitives).
      - `FieldWriter.writeValue(jw, fd, value, this)` dispatches on `JavaType`.
-     - Field-name writes use `nameWithColon` (UTF-16) or `nameWithColonUtf8` (UTF-8) per the hoisted `utf8` local.
-3. For MESSAGE fields in any path: `WellKnownTypes.isWellKnownType()` check first, then recurses via `writer.writeMessage()` (which re-enters the three-tier dispatch).
+     - For fields with presence, `hasField` is checked **before** `getField` — the old order paid a boxed reflective read for every absent optional field and threw the value away.
+     - Map fields pass `FieldInfo.mapKeyDescriptor()`/`mapValueDescriptor()` into `FieldWriter.writeMap`, which no longer calls `findFieldByName("key"/"value")` per map write.
+     - Field-name writes go through `FieldInfo.name().writeTo(jw)` (`FieldName` — pre-encoded `char[]`/`byte[]`, dispatched on `isUTF8()`; the word-packed path is codegen-only, see `FieldName`'s javadoc for the measurement).
+3. For MESSAGE fields in any path: `WellKnownTypes.isWellKnownType()` check first, then recurses via `writer.writeMessage()` (which re-enters the three-tier dispatch). Codegen skips this for Timestamp, Duration and the nine wrappers, whose writes are emitted inline.
+4. `Struct`/`Value`/`ListValue` take a typed fast path when the message is a compiled `com.google.protobuf.Struct`/`Value`/`ListValue`: `getFieldsMap()` instead of materializing the synthetic MapEntry list, and `getKindCase()` (an int switch) instead of `getOneofs().get(0)` — which allocates an `Arrays.asList` + `unmodifiableList` wrapper pair on *every* call — plus `getOneofFieldDescriptor()` and a switch on the field's String name. The reflective path stays for `DynamicMessage`, with the map-entry key/value descriptors hoisted out of the per-entry loop and the `kind` oneof cached per Descriptor.
 
 ## Settings Flow (no ThreadLocals)
 

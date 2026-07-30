@@ -33,17 +33,19 @@ RESULTS_FILE="${RESULTS_FILE:-/tmp/buff-json-alloc-check.json}"
 # across runs and platforms. If you tighten or widen a budget, update the
 # baseline comment.
 BUDGETS=(
-    # SimpleMessage (6 fields, ~80-byte JSON output) — String/byte[] return is the
-    # dominant allocation; the encoder itself is near-zero.
-    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf16:380"   # baseline ~296 B/op
-    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf8:350"    # baseline ~272 B/op
-    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf16:400"    # baseline ~296 B/op (typed-accessor)
-    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf8:380"     # baseline ~272 B/op (typed-accessor)
+    # SimpleMessage (6 fields, ~80-byte JSON output) — the String/byte[] return is
+    # now essentially the *only* allocation; the encoder itself is zero. Dropped
+    # by 88 B/op when BuffJsonEncoder started sharing one JSONWriter.Context
+    # instead of letting JSONWriter.of() allocate one per call.
+    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf16:290"   # baseline ~208 B/op
+    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf8:260"    # baseline ~184 B/op
+    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf16:290"    # baseline ~208 B/op (typed-accessor)
+    "io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf8:260"     # baseline ~184 B/op (typed-accessor)
 
     # ComplexMessage (nested + repeated + maps + oneof) — bigger output, more
     # internal collections.
-    "io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonCompiled:2300"  # baseline ~1773 B/op
-    "io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonRuntime:2500"   # baseline ~1773 B/op
+    "io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonCompiled:2000"  # baseline ~1444 B/op
+    "io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonRuntime:1900"   # baseline ~1308 B/op
 
     # DoubleHeavy (25 doubles, IoT/telemetry profile) — number formatting cost.
     "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf16:2200"    # baseline ~1773 B/op

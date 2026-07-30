@@ -15,6 +15,7 @@ import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.*;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
+import com.google.protobuf.Descriptors.OneofDescriptor;
 
 /**
  * Specialized JSON serialization for protobuf
@@ -90,6 +91,9 @@ public final class WellKnownTypes {
 	 * findFieldByName lookups.
 	 */
 	private static final ConcurrentHashMap<Descriptor, FieldDescriptor[]> WKT_FIELD_CACHE = new ConcurrentHashMap<>();
+
+	/** Cached {@code kind} oneof per {@code google.protobuf.Value} descriptor. */
+	private static final ConcurrentHashMap<Descriptor, OneofDescriptor> VALUE_KIND_CACHE = new ConcurrentHashMap<>();
 
 	private WellKnownTypes() {
 	}
@@ -379,13 +383,28 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeStruct(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		// Compiled Struct: iterate the real map instead of materializing the
+		// synthetic MapEntry list and pulling key/value back out through getField().
+		if (message instanceof Struct struct) {
+			jsonWriter.startObject();
+			for (var entry : struct.getFieldsMap().entrySet()) {
+				jsonWriter.writeName(entry.getKey());
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, entry.getValue(), writer);
+			}
+			jsonWriter.endObject();
+			return;
+		}
+
 		var fields = getFields(message, "fields");
 		@SuppressWarnings("unchecked")
 		List<Message> entries = (List<Message>) message.getField(fields[0]);
 
 		jsonWriter.startObject();
+		// Every entry shares the same map-entry descriptor, so resolve key/value once
+		// rather than hitting the descriptor cache per entry.
+		FieldDescriptor[] entryFields = entries.isEmpty() ? null : getFields(entries.get(0), "key", "value");
 		for (var entry : entries) {
-			var entryFields = getFields(entry, "key", "value");
 			String key = (String) entry.getField(entryFields[0]);
 			Message value = (Message) entry.getField(entryFields[1]);
 			jsonWriter.writeName(key);
@@ -396,8 +415,23 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		// Compiled Value: getKindCase() is an int switch on the oneof case, replacing
+		// a getOneofs() call (which allocates two list wrappers per invocation), a
+		// getOneofFieldDescriptor() scan, and a switch on the field's String name.
+		if (message instanceof Value value) {
+			switch (value.getKindCase()) {
+				case NULL_VALUE, KIND_NOT_SET -> jsonWriter.writeNull();
+				case NUMBER_VALUE -> jsonWriter.writeDouble(value.getNumberValue());
+				case STRING_VALUE -> jsonWriter.writeString(value.getStringValue());
+				case BOOL_VALUE -> jsonWriter.writeBool(value.getBoolValue());
+				case STRUCT_VALUE -> writeStruct(jsonWriter, value.getStructValue(), writer);
+				case LIST_VALUE -> writeListValue(jsonWriter, value.getListValue(), writer);
+			}
+			return;
+		}
+
 		var desc = message.getDescriptorForType();
-		var kindOneof = desc.getOneofs().get(0);
+		var kindOneof = kindOneof(desc);
 		var activeField = message.getOneofFieldDescriptor(kindOneof);
 
 		if (activeField == null) {
@@ -416,17 +450,43 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeListValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		if (message instanceof ListValue listValue) {
+			var typedValues = listValue.getValuesList();
+			jsonWriter.startArray();
+			for (int i = 0, n = typedValues.size(); i < n; i++) {
+				if (i > 0)
+					jsonWriter.writeComma();
+				writeValue(jsonWriter, typedValues.get(i), writer);
+			}
+			jsonWriter.endArray();
+			return;
+		}
+
 		var fields = getFields(message, "values");
 		@SuppressWarnings("unchecked")
 		List<Message> values = (List<Message>) message.getField(fields[0]);
 
 		jsonWriter.startArray();
-		for (int i = 0; i < values.size(); i++) {
+		for (int i = 0, n = values.size(); i < n; i++) {
 			if (i > 0)
 				jsonWriter.writeComma();
 			writeValue(jsonWriter, values.get(i), writer);
 		}
 		jsonWriter.endArray();
+	}
+
+	/**
+	 * Cached {@code kind} oneof for a {@code google.protobuf.Value} descriptor.
+	 * {@code Descriptor.getOneofs()} wraps the backing array in a fresh
+	 * {@code Arrays.asList} + {@code unmodifiableList} on every call — two
+	 * allocations per Value written.
+	 */
+	private static OneofDescriptor kindOneof(Descriptor desc) {
+		var cached = VALUE_KIND_CACHE.get(desc);
+		if (cached != null) {
+			return cached;
+		}
+		return VALUE_KIND_CACHE.computeIfAbsent(desc, d -> d.getOneofs().get(0));
 	}
 
 	private static void writeWrapper(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
