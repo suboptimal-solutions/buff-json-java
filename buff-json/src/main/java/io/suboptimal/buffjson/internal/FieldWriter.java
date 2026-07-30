@@ -121,7 +121,7 @@ public final class FieldWriter {
 	 * Writes a float value, handling NaN and Infinity as quoted strings per proto3
 	 * JSON spec. Also used by {@link WellKnownTypes} for FloatValue wrapper.
 	 */
-	static void writeFloatValue(JSONWriter jsonWriter, float value) {
+	public static void writeFloatValue(JSONWriter jsonWriter, float value) {
 		if (Float.isFinite(value)) {
 			jsonWriter.writeFloat(value);
 		} else if (Float.isNaN(value)) {
@@ -135,7 +135,7 @@ public final class FieldWriter {
 	 * Writes a double value, handling NaN and Infinity as quoted strings per proto3
 	 * JSON spec. Also used by {@link WellKnownTypes} for DoubleValue wrapper.
 	 */
-	static void writeDoubleValue(JSONWriter jsonWriter, double value) {
+	public static void writeDoubleValue(JSONWriter jsonWriter, double value) {
 		if (Double.isFinite(value)) {
 			jsonWriter.writeDouble(value);
 		} else if (Double.isNaN(value)) {
@@ -171,17 +171,14 @@ public final class FieldWriter {
 	 * {@link com.google.protobuf.MapEntry} and
 	 * {@link com.google.protobuf.DynamicMessage} map entries.
 	 */
-	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries,
-			ProtobufMessageWriter writer) {
-		var entryDesc = valueDescriptor.getContainingType();
-		var keyFd = entryDesc.findFieldByName("key");
-		var valueFd = entryDesc.findFieldByName("value");
+	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor keyDescriptor, FieldDescriptor valueDescriptor,
+			List<?> entries, ProtobufMessageWriter writer) {
 		jsonWriter.startObject();
 		for (Object entry : entries) {
 			Message entryMsg = (Message) entry;
-			jsonWriter.writeName(entryMsg.getField(keyFd).toString());
+			jsonWriter.writeName(entryMsg.getField(keyDescriptor).toString());
 			jsonWriter.writeColon();
-			writeValue(jsonWriter, valueFd, entryMsg.getField(valueFd), writer);
+			writeValue(jsonWriter, valueDescriptor, entryMsg.getField(valueDescriptor), writer);
 		}
 		jsonWriter.endObject();
 	}

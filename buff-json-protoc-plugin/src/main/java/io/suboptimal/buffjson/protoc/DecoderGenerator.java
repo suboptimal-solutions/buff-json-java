@@ -26,6 +26,11 @@ final class DecoderGenerator {
 		sb.append("package ").append(javaPackage).append(";\n\n");
 		sb.append("import com.alibaba.fastjson2.JSONReader;\n");
 		sb.append("import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;\n\n");
+		// readMessage calls the @Deprecated setter of a [deprecated = true] field, and
+		// consumers compile with -Xlint:all -Werror.
+		if (EncoderGenerator.hasDeprecatedField(msgDesc)) {
+			sb.append("@SuppressWarnings(\"deprecation\")\n");
+		}
 		sb.append("public final class ").append(decoderSimpleName);
 		sb.append(" implements BuffJsonGeneratedDecoder<").append(messageClassName).append("> {\n\n");
 

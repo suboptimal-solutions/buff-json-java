@@ -379,26 +379,65 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeStruct(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		// Compiled Struct: iterate the real map instead of materializing the
+		// synthetic MapEntry list and pulling key/value back out through getField().
+		if (message instanceof Struct struct) {
+			jsonWriter.startObject();
+			for (var entry : struct.getFieldsMap().entrySet()) {
+				jsonWriter.writeName(entry.getKey());
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, entry.getValue(), writer);
+			}
+			jsonWriter.endObject();
+			return;
+		}
+
 		var fields = getFields(message, "fields");
 		@SuppressWarnings("unchecked")
 		List<Message> entries = (List<Message>) message.getField(fields[0]);
 
 		jsonWriter.startObject();
-		for (var entry : entries) {
-			var entryFields = getFields(entry, "key", "value");
-			String key = (String) entry.getField(entryFields[0]);
-			Message value = (Message) entry.getField(entryFields[1]);
-			jsonWriter.writeName(key);
-			jsonWriter.writeColon();
-			writeValue(jsonWriter, value, writer);
+		if (!entries.isEmpty()) {
+			// Every entry shares the same map-entry descriptor, so resolve key/value once
+			// rather than hitting the descriptor cache per entry.
+			FieldDescriptor[] entryFields = getFields(entries.get(0), "key", "value");
+			for (var entry : entries) {
+				String key = (String) entry.getField(entryFields[0]);
+				Message value = (Message) entry.getField(entryFields[1]);
+				jsonWriter.writeName(key);
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, value, writer);
+			}
 		}
 		jsonWriter.endObject();
 	}
 
 	private static void writeValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
-		var desc = message.getDescriptorForType();
-		var kindOneof = desc.getOneofs().get(0);
-		var activeField = message.getOneofFieldDescriptor(kindOneof);
+		// Compiled Value: getKindCase() is an int switch on the oneof case, replacing
+		// a getOneofs() call (which allocates two list wrappers per invocation), a
+		// getOneofFieldDescriptor() scan, and a switch on the field's String name.
+		if (message instanceof Value value) {
+			switch (value.getKindCase()) {
+				case NULL_VALUE, KIND_NOT_SET -> jsonWriter.writeNull();
+				case NUMBER_VALUE -> jsonWriter.writeDouble(value.getNumberValue());
+				case STRING_VALUE -> jsonWriter.writeString(value.getStringValue());
+				case BOOL_VALUE -> jsonWriter.writeBool(value.getBoolValue());
+				case STRUCT_VALUE -> writeStruct(jsonWriter, value.getStructValue(), writer);
+				case LIST_VALUE -> writeListValue(jsonWriter, value.getListValue(), writer);
+				// A kind added by a future protobuf-java would otherwise write nothing at
+				// all after the caller has already emitted the name and colon, producing
+				// structurally invalid JSON. javac has no exhaustiveness lint for switch
+				// statements, so this arm is the guard.
+				default -> jsonWriter.writeNull();
+			}
+			return;
+		}
+
+		// DynamicMessage only — compiled Value returned above. getOneofs() allocates a
+		// list-wrapper pair per call, but caching the result would mean a second
+		// strong-keyed Descriptor cache pinning the descriptor pool of every schema
+		// ever loaded, to save two allocations on a cold path.
+		var activeField = message.getOneofFieldDescriptor(message.getDescriptorForType().getOneofs().get(0));
 
 		if (activeField == null) {
 			jsonWriter.writeNull();
@@ -416,12 +455,24 @@ public final class WellKnownTypes {
 	}
 
 	private static void writeListValue(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
+		if (message instanceof ListValue listValue) {
+			var typedValues = listValue.getValuesList();
+			jsonWriter.startArray();
+			for (int i = 0, n = typedValues.size(); i < n; i++) {
+				if (i > 0)
+					jsonWriter.writeComma();
+				writeValue(jsonWriter, typedValues.get(i), writer);
+			}
+			jsonWriter.endArray();
+			return;
+		}
+
 		var fields = getFields(message, "values");
 		@SuppressWarnings("unchecked")
 		List<Message> values = (List<Message>) message.getField(fields[0]);
 
 		jsonWriter.startArray();
-		for (int i = 0; i < values.size(); i++) {
+		for (int i = 0, n = values.size(); i < n; i++) {
 			if (i > 0)
 				jsonWriter.writeComma();
 			writeValue(jsonWriter, values.get(i), writer);

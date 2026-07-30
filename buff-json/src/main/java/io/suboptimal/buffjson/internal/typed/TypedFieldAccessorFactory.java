@@ -195,6 +195,9 @@ public final class TypedFieldAccessorFactory {
 		return switch (fd.getJavaType()) {
 			case INT -> new TypedFieldAccessor.RepeatedIntAccessor(listGetter, isUnsigned32(fd), name);
 			case LONG -> new TypedFieldAccessor.RepeatedLongAccessor(listGetter, isUnsigned64(fd), name);
+			case DOUBLE -> new TypedFieldAccessor.RepeatedDoubleAccessor(listGetter, name);
+			case FLOAT -> new TypedFieldAccessor.RepeatedFloatAccessor(listGetter, name);
+			case BOOLEAN -> new TypedFieldAccessor.RepeatedBoolAccessor(listGetter, name);
 			case STRING -> new TypedFieldAccessor.RepeatedStringAccessor(listGetter, name);
 			case MESSAGE -> new TypedFieldAccessor.RepeatedMessageAccessor(listGetter, name);
 			default -> new TypedFieldAccessor.RepeatedAccessor(listGetter, fd, name);
@@ -226,7 +229,7 @@ public final class TypedFieldAccessorFactory {
 		} catch (NoSuchMethodException e) {
 			// Fallback: use getField(fd) for unusual cases (custom protoc output)
 			Function<Message, List<?>> entriesGetter = msg -> (List<?>) msg.getField(fd);
-			return new TypedFieldAccessor.MapAccessor(entriesGetter, valueFd, name);
+			return new TypedFieldAccessor.MapAccessor(entriesGetter, keyFd, valueFd, name);
 		}
 	}
 
@@ -340,19 +343,7 @@ public final class TypedFieldAccessorFactory {
 	}
 
 	static FieldName fieldName(String jsonName) {
-		char[] chars = new char[jsonName.length() + 3];
-		chars[0] = '"';
-		jsonName.getChars(0, jsonName.length(), chars, 1);
-		chars[jsonName.length() + 1] = '"';
-		chars[jsonName.length() + 2] = ':';
-		// Proto field names are always ASCII, so UTF-8 encoding is trivial
-		byte[] utf8 = new byte[jsonName.length() + 3];
-		utf8[0] = '"';
-		for (int i = 0; i < jsonName.length(); i++)
-			utf8[i + 1] = (byte) jsonName.charAt(i);
-		utf8[jsonName.length() + 1] = '"';
-		utf8[jsonName.length() + 2] = ':';
-		return new FieldName(chars, utf8);
+		return FieldName.of(jsonName);
 	}
 
 	private static boolean isUnsigned32(FieldDescriptor fd) {

@@ -3,6 +3,7 @@ package io.suboptimal.buffjson;
 import java.io.IOException;
 import java.io.OutputStream;
 
+import com.alibaba.fastjson2.JSONFactory;
 import com.alibaba.fastjson2.JSONWriter;
 import com.alibaba.fastjson2.modules.ObjectWriterModule;
 import com.google.protobuf.Message;
@@ -45,6 +46,23 @@ public final class BuffJsonEncoder {
 	private boolean useGeneratedEncoders = true;
 	private boolean useTypedAccessors = true;
 	private volatile ProtobufMessageWriter cachedWriter;
+
+	/**
+	 * Shared write context. {@code JSONWriter.of()} otherwise allocates a fresh
+	 * {@link JSONWriter.Context} per call to carry configuration that never changes
+	 * between encodes. The context is read-only during writing, so one per encoder
+	 * is safe to share across threads.
+	 *
+	 * <p>
+	 * Note that {@code JSONFactory.createWriteContext()} <i>snapshots</i>
+	 * fastjson2's process-wide writer defaults (features, date format, zone, max
+	 * level). Sharing one context therefore pins them at encoder-construction time:
+	 * a later {@code JSON.config(...)} or
+	 * {@code JSONFactory.setDefaultMaxLevel(...)} no longer affects an
+	 * already-built encoder. Configure fastjson2 before calling
+	 * {@link BuffJson#encoder()} if you rely on those globals.
+	 */
+	private final JSONWriter.Context writeContext = JSONFactory.createWriteContext();
 
 	BuffJsonEncoder() {
 	}
@@ -90,7 +108,7 @@ public final class BuffJsonEncoder {
 	 */
 	public String encode(MessageOrBuilder message) {
 		Message msg = toMessage(message);
-		try (JSONWriter writer = JSONWriter.of()) {
+		try (JSONWriter writer = JSONWriter.of(writeContext)) {
 			messageWriter().writeMessage(writer, msg);
 			return writer.toString();
 		}
@@ -101,7 +119,7 @@ public final class BuffJsonEncoder {
 	 */
 	public byte[] encodeToBytes(MessageOrBuilder message) {
 		Message msg = toMessage(message);
-		try (JSONWriter writer = JSONWriter.ofUTF8()) {
+		try (JSONWriter writer = JSONWriter.ofUTF8(writeContext)) {
 			messageWriter().writeMessage(writer, msg);
 			return writer.getBytes();
 		}
@@ -113,7 +131,7 @@ public final class BuffJsonEncoder {
 	 */
 	public void encode(MessageOrBuilder message, OutputStream out) throws IOException {
 		Message msg = toMessage(message);
-		try (JSONWriter writer = JSONWriter.ofUTF8()) {
+		try (JSONWriter writer = JSONWriter.ofUTF8(writeContext)) {
 			messageWriter().writeMessage(writer, msg);
 			writer.flushTo(out);
 		}
