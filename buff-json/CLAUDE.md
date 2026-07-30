@@ -63,12 +63,12 @@ io.suboptimal.buffjson.internal.typed/
    - Reuses cached `ProtobufMessageWriter(typeRegistry, useGenerated, useTyped)` (volatile field on encoder; invalidated on setters).
    - Calls `writer.writeMessage(jsonWriter, message)`.
 2. `ProtobufMessageWriter.writeFields(jsonWriter, message)` — three-tier dispatch:
-   - **Tier 1 — Codegen** (if `useGenerated && message instanceof BuffJsonCodecHolder`):
+   - **Tier 1 — Codegen** (if `useGenerated && canUsePackedNames(jw) && message instanceof BuffJsonCodecHolder`):
      - `holder.buffJsonEncoder().writeFields(jw, msg, this)` → typed getters, no reflection.
      - Nested messages call other encoders directly via `INSTANCE.writeFields(jw, msg, writer)` (no registry, no instanceof per nested).
      - Timestamp/Duration fields call `writeTimestampDirect()`/`writeDurationDirect()`.
      - Enum fields use pre-cached `String[]` name arrays.
-     - Field-name writes are `jsonWriter.writeName<n>Raw(NAME_X_W0[, ...])` — the name is already in machine words, so no `isUTF8()` branch and no `arraycopy`. The `boolean utf8` local and the `char[]`/`byte[]` constants are emitted only when some field has an unpackable `json_name`.
+     - Field-name writes are `jsonWriter.writeName<n>Raw(NAME_X_W0[, ...])` — the name is already in machine words, so no `isUTF8()` branch and no `arraycopy`. Generated code emits these unconditionally, so **`canUsePackedNames` is the only veto**: it skips this whole tier when `FieldNames.PACKED_NAMES_SUPPORTED` is false (layout self-check failed, or big-endian) or the writer uses single quotes (lengths 7 and 15 take their closing quote from fastjson2, so the mix would be invalid JSON). Falling through to tier 2 is safe because the fuzz test asserts all three tiers are byte-identical. The `boolean utf8` local and the `char[]`/`byte[]` constants are emitted only when some field has an unpackable `json_name`.
      - Repeated numeric/bool fields narrow to `Internal.IntList`/`LongList`/`DoubleList`/`FloatList`/`BooleanList` and read primitives (no per-element boxing); repeated strings go through `jsonWriter.writeString(values)` in one call.
      - Wrapper WKT fields (`Int32Value`, `StringValue`, …) emit the typed `getValue()` write directly.
      - Returns — never falls through.
@@ -88,7 +88,7 @@ io.suboptimal.buffjson.internal.typed/
      - Map fields pass `FieldInfo.mapKeyDescriptor()`/`mapValueDescriptor()` into `FieldWriter.writeMap`, which no longer calls `findFieldByName("key"/"value")` per map write.
      - Field-name writes go through `FieldInfo.name().writeTo(jw)` (`FieldName` — pre-encoded `char[]`/`byte[]`, dispatched on `isUTF8()`; the word-packed path is codegen-only, see `FieldName`'s javadoc for the measurement).
 3. For MESSAGE fields in any path: `WellKnownTypes.isWellKnownType()` check first, then recurses via `writer.writeMessage()` (which re-enters the three-tier dispatch). Codegen skips this for Timestamp, Duration and the nine wrappers, whose writes are emitted inline.
-4. `Struct`/`Value`/`ListValue` take a typed fast path when the message is a compiled `com.google.protobuf.Struct`/`Value`/`ListValue`: `getFieldsMap()` instead of materializing the synthetic MapEntry list, and `getKindCase()` (an int switch) instead of `getOneofs().get(0)` — which allocates an `Arrays.asList` + `unmodifiableList` wrapper pair on *every* call — plus `getOneofFieldDescriptor()` and a switch on the field's String name. The reflective path stays for `DynamicMessage`, with the map-entry key/value descriptors hoisted out of the per-entry loop and the `kind` oneof cached per Descriptor.
+4. `Struct`/`Value`/`ListValue` take a typed fast path when the message is a compiled `com.google.protobuf.Struct`/`Value`/`ListValue`: `getFieldsMap()` instead of materializing the synthetic MapEntry list, and `getKindCase()` (an int switch) instead of `getOneofs().get(0)` — which allocates an `Arrays.asList` + `unmodifiableList` wrapper pair on *every* call — plus `getOneofFieldDescriptor()` and a switch on the field's String name. The `getKindCase()` switch carries a `default -> writeNull()` arm, because a kind added by a future protobuf-java would otherwise write nothing after the caller has already emitted the name and colon. The reflective path stays for `DynamicMessage`, with the map-entry key/value descriptors hoisted out of the per-entry loop; the `kind` oneof is *not* cached — a strong-keyed `Descriptor` cache would pin the descriptor pool of every schema ever loaded to save two allocations on a cold path.
 
 ## Settings Flow (no ThreadLocals)
 

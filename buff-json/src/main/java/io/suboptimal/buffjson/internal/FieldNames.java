@@ -4,6 +4,8 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
+import com.alibaba.fastjson2.JSONWriter;
+
 /**
  * Packs a JSON field name into the {@code long}/{@code int} words consumed by
  * fastjson2's {@code JSONWriter.writeName2Raw(long)} …
@@ -60,10 +62,33 @@ import java.nio.ByteOrder;
  *
  * <p>
  * The offset-1 cases (8 and 16) are the two lengths where fastjson2 writes the
- * opening quote separately and stores only the name body. The words are read in
- * {@linkplain ByteOrder#nativeOrder() native byte order} because fastjson2
- * stores them with {@code Unsafe.putLong}, so the same constants are correct on
- * little- and big-endian hosts alike.
+ * opening quote separately and stores only the name body.
+ *
+ * <h2>Not universally usable — see {@link #PACKED_NAMES_SUPPORTED}</h2>
+ *
+ * This is an undocumented fastjson2 internal, and two things can invalidate it:
+ *
+ * <ul>
+ * <li><b>Byte order.</b> {@code JSONWriterUTF8} stores the word with
+ * {@code Unsafe.putLong} (native order), but {@code JSONWriterUTF16} widens it
+ * to {@code char}s by extracting bytes at <em>hard-coded little-endian
+ * positions</em> ({@code v & 0xFF}, {@code (v & 0xFF00) << 8}, …) with no
+ * {@code BIG_ENDIAN} branch. The two cannot both be satisfied by one constant
+ * on a big-endian host.
+ * <li><b>Quoting.</b> The quote characters are split between us and fastjson2
+ * and the split differs per length: we bake both quotes for lengths 2–6 and
+ * 9–14, only the opening quote for 7 and 15, and neither for 8 and 16.
+ * fastjson2 emits its share from {@code this.quote}, so under
+ * {@code JSONWriter.Feature.UseSingleQuotes} a name of length 7 or 15 comes out
+ * as {@code "name'} — not merely a feature we ignore, but JSON no parser
+ * accepts.
+ * </ul>
+ *
+ * <p>
+ * So {@code PACKED_NAMES_SUPPORTED} self-checks the layout at class init, and
+ * {@code ProtobufMessageWriter} additionally skips the codegen path for a
+ * single-quote writer. Both failures fall back to the {@code writeNameRaw}
+ * arrays, which own every byte they emit.
  *
  * <p>
  * <b>Both encodings share the constants.</b> {@code JSONWriterUTF16} widens the
@@ -92,7 +117,79 @@ public final class FieldNames {
 	private static final VarHandle INT_VIEW = MethodHandles.byteArrayViewVarHandle(int[].class,
 			ByteOrder.nativeOrder());
 
+	/**
+	 * Whether this JVM's fastjson2 actually consumes the packed words the way
+	 * {@link #packedWord0} produces them.
+	 *
+	 * <p>
+	 * Verified once here rather than assumed, because the layout is an undocumented
+	 * fastjson2 internal and a mismatch would corrupt <b>every field name in every
+	 * message</b> silently. A fastjson2 upgrade that moves the layout, or a
+	 * big-endian host (see the class javadoc), turns this off and the write paths
+	 * fall back to {@code writeNameRaw}.
+	 */
+	public static final boolean PACKED_NAMES_SUPPORTED = selfCheck();
+
 	private FieldNames() {
+	}
+
+	/**
+	 * Round-trips a probe name of every supported length through both writer
+	 * encodings and confirms the emitted text. Runs once per JVM at class init.
+	 */
+	private static boolean selfCheck() {
+		try {
+			for (int n = 2; n <= MAX_PACKED_LENGTH; n++) {
+				StringBuilder sb = new StringBuilder(n);
+				for (int i = 0; i < n; i++) {
+					sb.append((char) ('a' + i % 26));
+				}
+				String name = sb.toString();
+				String expected = "{\"" + name + "\":1}";
+				for (int encoding = 0; encoding < 2; encoding++) {
+					try (JSONWriter jw = encoding == 0 ? JSONWriter.ofUTF8() : JSONWriter.of()) {
+						jw.startObject();
+						writePackedName(jw, name);
+						jw.writeInt32(1);
+						jw.endObject();
+						if (!expected.equals(jw.toString())) {
+							return false;
+						}
+					}
+				}
+			}
+			return true;
+		} catch (Throwable t) {
+			return false;
+		}
+	}
+
+	/**
+	 * Writes a packed name by length. Used only by {@link #selfCheck()} — the
+	 * generated encoders emit the matching {@code writeName<n>Raw} call directly,
+	 * which is the whole point of the fast path (a length switch here measured
+	 * slower than the arrays; see
+	 * {@link io.suboptimal.buffjson.internal.typed.FieldName}).
+	 */
+	private static void writePackedName(JSONWriter jw, String name) {
+		switch (name.length()) {
+			case 2 -> jw.writeName2Raw(packedWord0(name));
+			case 3 -> jw.writeName3Raw(packedWord0(name));
+			case 4 -> jw.writeName4Raw(packedWord0(name));
+			case 5 -> jw.writeName5Raw(packedWord0(name));
+			case 6 -> jw.writeName6Raw(packedWord0(name));
+			case 7 -> jw.writeName7Raw(packedWord0(name));
+			case 8 -> jw.writeName8Raw(packedWord0(name));
+			case 9 -> jw.writeName9Raw(packedWord0(name), packedTailInt(name));
+			case 10 -> jw.writeName10Raw(packedWord0(name), packedWord1(name));
+			case 11 -> jw.writeName11Raw(packedWord0(name), packedWord1(name));
+			case 12 -> jw.writeName12Raw(packedWord0(name), packedWord1(name));
+			case 13 -> jw.writeName13Raw(packedWord0(name), packedWord1(name));
+			case 14 -> jw.writeName14Raw(packedWord0(name), packedWord1(name));
+			case 15 -> jw.writeName15Raw(packedWord0(name), packedWord1(name));
+			case 16 -> jw.writeName16Raw(packedWord0(name), packedWord1(name));
+			default -> throw new IllegalArgumentException("not a packable length: " + name.length());
+		}
 	}
 
 	/**
@@ -141,12 +238,20 @@ public final class FieldNames {
 	 */
 	public static long packedWord1(String jsonName) {
 		checkPackable(jsonName);
+		if (jsonName.length() < 10) {
+			// Shorter names have no second word; the zero-padded read would silently
+			// return 0 and write NUL bytes into the name.
+			throw new IllegalArgumentException("no second packed word for a name of length " + jsonName.length());
+		}
 		return (long) LONG_VIEW.get(quotedName(jsonName), wordOffset(jsonName.length()) + 8);
 	}
 
 	/** The trailing {@code int} of the 9-character variant. */
 	public static int packedTailInt(String jsonName) {
 		checkPackable(jsonName);
+		if (jsonName.length() != 9) {
+			throw new IllegalArgumentException("the tail int is only for 9-character names, got " + jsonName.length());
+		}
 		return (int) INT_VIEW.get(quotedName(jsonName), wordOffset(jsonName.length()) + 8);
 	}
 
@@ -186,17 +291,33 @@ public final class FieldNames {
 	 * for names that are not {@linkplain #isRawWritable raw-writable} — an explicit
 	 * {@code json_name} carrying a quote, a backslash or a newline would otherwise
 	 * emit source that does not compile.
+	 *
+	 * <p>
+	 * A line terminator <b>must</b> come out as its {@code \n}/{@code \r} escape
+	 * and never as a unicode escape: javac translates unicode escapes <i>before</i>
+	 * tokenizing (JLS 3.3), so a unicode-escaped LF turns back into a real newline
+	 * and leaves the string literal unclosed. Every other control character is safe
+	 * as a unicode escape — only line terminators may not appear inside a literal.
 	 */
 	public static String javaStringLiteral(String jsonName) {
 		StringBuilder sb = new StringBuilder(jsonName.length() + 8).append('"');
 		for (int i = 0; i < jsonName.length(); i++) {
 			char c = jsonName.charAt(i);
-			if (c == '"' || c == '\\') {
-				sb.append('\\').append(c);
-			} else if (c >= 0x20 && c <= 0x7e) {
-				sb.append(c);
-			} else {
-				sb.append(String.format("\\u%04x", (int) c));
+			switch (c) {
+				case '"' -> sb.append("\\\"");
+				case '\\' -> sb.append("\\\\");
+				case '\n' -> sb.append("\\n");
+				case '\r' -> sb.append("\\r");
+				case '\t' -> sb.append("\\t");
+				case '\b' -> sb.append("\\b");
+				case '\f' -> sb.append("\\f");
+				default -> {
+					if (c >= 0x20 && c <= 0x7e) {
+						sb.append(c);
+					} else {
+						sb.append(String.format("\\u%04x", (int) c));
+					}
+				}
 			}
 		}
 		return sb.append('"').toString();

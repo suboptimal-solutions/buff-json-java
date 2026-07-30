@@ -103,17 +103,14 @@ public final class MessageSchema {
 			return jsonName;
 		}
 
-		/** Pre-encoded {@code "fieldName":} in both writer encodings. */
+		/**
+		 * Pre-encoded {@code "fieldName":}. Write it with
+		 * {@link FieldName#writeTo(com.alibaba.fastjson2.JSONWriter)} rather than
+		 * reaching for the arrays — a {@code json_name} that is not raw-writable has
+		 * none, and only {@code writeTo} knows to escape it instead.
+		 */
 		public FieldName name() {
 			return name;
-		}
-
-		public char[] nameWithColon() {
-			return name.chars();
-		}
-
-		public byte[] nameWithColonUtf8() {
-			return name.utf8();
 		}
 
 		public FieldDescriptor.JavaType javaType() {

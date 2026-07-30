@@ -27,7 +27,8 @@ import io.suboptimal.buffjson.internal.typed.TypedMessageSchema;
  * For each message, paths are tried in order:
  *
  * <ol>
- * <li><b>Codegen</b> — if {@code useGenerated && message instanceof
+ * <li><b>Codegen</b> — if {@code useGenerated}, the writer can take packed
+ * names ({@link #canUsePackedNames}), and {@code message instanceof
  * BuffJsonCodecHolder}, delegates to the generated
  * {@code BuffJsonGeneratedEncoder} (injected via protoc insertion points).
  * Direct typed accessors, no reflection or boxing. Highest throughput.
@@ -47,10 +48,14 @@ import io.suboptimal.buffjson.internal.typed.TypedMessageSchema;
  * </ol>
  *
  * <p>
- * Field-name writes in tiers 1 and 3 dispatch on {@code jsonWriter.isUTF8()} —
- * UTF-8 writers consume pre-encoded {@code byte[]} (no char→byte transcoding),
- * UTF-16 writers consume {@code char[]}. Tier 2 dispatches inside
- * {@link io.suboptimal.buffjson.internal.typed.FieldName#writeTo}.
+ * Field names: tier 1 writes machine-word-packed names via fastjson2's
+ * {@code writeName<n>Raw} family (see {@link FieldNames}) with no encoding
+ * branch at all; tiers 2 and 3 both go through
+ * {@link io.suboptimal.buffjson.internal.typed.FieldName#writeTo}, which
+ * dispatches on {@code jsonWriter.isUTF8()} between a pre-encoded
+ * {@code byte[]} and {@code char[]}. Because the packed words are only partly
+ * ours, tier 1 is vetoed for writers it cannot serve — see
+ * {@link #canUsePackedNames}.
  *
  * <p>
  * Default value detection uses raw bit comparison for float/double (to
@@ -100,7 +105,7 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 	 */
 	@SuppressWarnings("unchecked")
 	void writeFields(JSONWriter jsonWriter, Message message) {
-		if (useGenerated && message instanceof BuffJsonCodecHolder holder) {
+		if (useGenerated && canUsePackedNames(jsonWriter) && message instanceof BuffJsonCodecHolder holder) {
 			((BuffJsonGeneratedEncoder<Message>) holder.buffJsonEncoder()).writeFields(jsonWriter, message, this);
 			return;
 		}
@@ -147,6 +152,30 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				FieldWriter.writeValue(jsonWriter, fd, value, this);
 			}
 		}
+	}
+
+	/**
+	 * Whether the generated encoders' word-packed field names are valid for this
+	 * writer. Generated code emits {@code writeName<n>Raw} unconditionally, so this
+	 * is the single place that can veto the codegen tier; the typed-accessor and
+	 * reflection tiers own every byte of the name they emit and are always safe.
+	 *
+	 * <p>
+	 * Two vetoes, both rare and both checked once per message rather than per
+	 * field:
+	 *
+	 * <ul>
+	 * <li>{@link FieldNames#PACKED_NAMES_SUPPORTED} — the layout self-check failed
+	 * (a fastjson2 upgrade moved it, or a big-endian host).
+	 * <li>{@code useSingleQuote} — fastjson2 supplies the closing quote from
+	 * {@code this.quote} for names of length 7 and 15 while the packed word carries
+	 * a hard-coded {@code "}, so a single-quote writer would emit {@code "name'}:
+	 * not merely a feature we ignore (the {@code writeNameRaw} arrays have always
+	 * ignored it, emitting valid double-quoted names) but JSON no parser accepts.
+	 * </ul>
+	 */
+	private static boolean canUsePackedNames(JSONWriter jsonWriter) {
+		return FieldNames.PACKED_NAMES_SUPPORTED && !jsonWriter.useSingleQuote;
 	}
 
 	private static boolean isDefaultValue(MessageSchema.FieldInfo fieldInfo, Object value) {

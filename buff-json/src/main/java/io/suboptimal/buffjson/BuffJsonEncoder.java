@@ -52,6 +52,15 @@ public final class BuffJsonEncoder {
 	 * {@link JSONWriter.Context} per call to carry configuration that never changes
 	 * between encodes. The context is read-only during writing, so one per encoder
 	 * is safe to share across threads.
+	 *
+	 * <p>
+	 * Note that {@code JSONFactory.createWriteContext()} <i>snapshots</i>
+	 * fastjson2's process-wide writer defaults (features, date format, zone, max
+	 * level). Sharing one context therefore pins them at encoder-construction time:
+	 * a later {@code JSON.config(...)} or
+	 * {@code JSONFactory.setDefaultMaxLevel(...)} no longer affects an
+	 * already-built encoder. Configure fastjson2 before calling
+	 * {@link BuffJson#encoder()} if you rely on those globals.
 	 */
 	private final JSONWriter.Context writeContext = JSONFactory.createWriteContext();
 

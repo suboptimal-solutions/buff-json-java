@@ -21,43 +21,47 @@ confirm.
 
 ## Results
 
-Throughput, ops/s, higher is better. Score error was ±2–5% on both sides except where noted.
+Throughput, ops/s, higher is better, from the final interleaved A/B (after the review fixes below).
 
-|             benchmark             |     before |      after |              delta |
-|-----------------------------------|-----------:|-----------:|-------------------:|
-| `SimpleMessage.compiledUtf16`     |  9,874,885 | 11,071,259 |             +12.1% |
-| `SimpleMessage.compiledUtf8`      | 11,474,893 | 13,021,993 |             +13.5% |
-| `SimpleMessage.runtimeUtf16`      |  7,485,001 |  8,064,932 |              +7.7% |
-| `SimpleMessage.runtimeUtf8`       |  8,870,673 |  9,099,641 |              +2.6% |
-| `ComplexMessage.buffJsonCompiled` |    749,489 |    773,347 |              +3.2% |
-| `ComplexMessage.buffJsonRuntime`  |    646,093 |    662,785 |              +2.6% |
-| `Wkt.structCompiled`              |    296,651 |    467,034 |             +57.4% |
-| `Wkt.structRuntime`               |    292,599 |    481,153 |             +64.4% |
-| `Wkt.timestampCompiled`           |  4,736,791 |  4,891,055 |              +3.3% |
-| `Wkt.timestampRuntime`            |  2,839,048 |  2,833,593 |              −0.2% |
-| `RepeatedAndMap.repeatedCompiled` |    115,094 |    112,168 | −2.5% (±14% after) |
-| `RepeatedAndMap.repeatedRuntime`  |     94,399 |     94,978 |              +0.6% |
-| `RepeatedAndMap.mapCompiled`      |     95,574 |     94,222 |  −1.4% (±7% after) |
-| `RepeatedAndMap.mapRuntime`       |     76,305 |     76,494 |              +0.2% |
+|             benchmark             |    before |      after |              delta |
+|-----------------------------------|----------:|-----------:|-------------------:|
+| `SimpleMessage.compiledUtf16`     | 7,348,223 |  8,455,279 |         **+15.1%** |
+| `SimpleMessage.compiledUtf8`      | 8,927,071 | 10,282,569 |         **+15.2%** |
+| `SimpleMessage.runtimeUtf16`      | 5,228,166 |  5,324,573 |              +1.8% |
+| `SimpleMessage.runtimeUtf8`       | 5,898,804 |  6,286,012 |              +6.6% |
+| `ComplexMessage.buffJsonCompiled` |   603,853 |    636,926 |              +5.5% |
+| `ComplexMessage.buffJsonRuntime`  |   504,190 |    523,610 |              +3.9% |
+| `Wkt.structCompiled`              |   256,180 |    554,431 |          **+116%** |
+| `Wkt.structRuntime`               |   254,471 |    528,181 |          **+108%** |
+| `Wkt.timestampCompiled`           | 3,940,234 |  3,806,456 |              −3.4% |
+| `Wkt.timestampRuntime`            | 1,982,941 |  2,145,355 |              +8.2% |
+| `RepeatedAndMap.*` (4)            |         — |          — | flat, within noise |
 
-Allocation, `gc.alloc.rate.norm` B/op, lower is better:
+**Do not read the absolute numbers as machine-independent.** An identical earlier A/B on this same
+host, before other work loaded it, put `SimpleMessage.compiledUtf16` at 9.87M → 11.07M — ~25%
+higher on *both* sides. The ratios were stable across the two runs (+12.1% then +15.1%); the
+absolutes were not. Struct's ratio moved more (+57% then +116%) because its win is
+allocation-dominated, and allocation costs more when the host is busier. Only ever compare two jars
+run back to back.
 
-|             benchmark             | before | after |  delta |
-|-----------------------------------|-------:|------:|-------:|
-| `SimpleMessage.compiledUtf16`     |    296 |   208 |    −88 |
-| `SimpleMessage.compiledUtf8`      |    272 |   184 |    −88 |
-| `SimpleMessage.runtimeUtf16`      |    296 |   208 |    −88 |
-| `SimpleMessage.runtimeUtf8`       |    272 |   184 |    −88 |
-| `ComplexMessage.buffJsonCompiled` |  1,532 | 1,444 |    −88 |
-| `ComplexMessage.buffJsonRuntime`  |  1,396 | 1,308 |    −88 |
-| `Wkt.structCompiled` / `Runtime`  |  1,305 |   648 |   −657 |
-| `Wkt.timestampCompiled`           |    464 |   376 |    −88 |
-| `RepeatedAndMap.mapRuntime`       |  8,021 | 6,727 | −1,294 |
-| `RepeatedAndMap.repeated*`        |  5,385 | 5,297 |    −88 |
+Allocation, `gc.alloc.rate.norm` B/op, lower is better (stable across runs):
+
+|             benchmark             | before | after |      delta |
+|-----------------------------------|-------:|------:|-----------:|
+| `SimpleMessage.compiledUtf16`     |    296 |   208 |        −88 |
+| `SimpleMessage.compiledUtf8`      |    272 |   184 |        −88 |
+| `SimpleMessage.runtimeUtf16`      |    296 |   208 |        −88 |
+| `SimpleMessage.runtimeUtf8`       |    272 |   184 |        −88 |
+| `ComplexMessage.buffJsonCompiled` |  1,532 | 1,444 |        −88 |
+| `ComplexMessage.buffJsonRuntime`  |  1,396 | 1,308 |        −88 |
+| `Wkt.struct*`                     |  1,305 |   648 |   **−657** |
+| `Wkt.timestampCompiled`           |    464 |   376 |        −88 |
+| `RepeatedAndMap.mapRuntime`       |  8,021 | 6,727 | **−1,294** |
+| `RepeatedAndMap.repeated*`        |  5,385 | 5,297 |        −88 |
 
 The flat −88 B/op everywhere is the per-call `JSONWriter.Context`. For `SimpleMessage` that is 30%
-of the total allocation — after the change the returned `String`/`byte[]` is essentially the only
-thing allocated per encode. Budgets in `allocation-check.sh` were tightened to match.
+of the total — after the change the returned `String`/`byte[]` is essentially the only thing
+allocated per encode. Budgets in `allocation-check.sh` were tightened to match.
 
 ## Part 1 — Applied
 
@@ -101,11 +105,31 @@ reasoning is recorded in `FieldName`'s javadoc so it does not get "fixed" again.
 Where the win lands: +12–13% on `SimpleMessage` codegen, which is six fields and ~80 bytes of
 output — i.e. the shape where field-name writing is the largest single cost.
 
+**Where the packed words are not usable.** The fast path is only partly ours, and two things
+invalidate it — both found by review after the first implementation, both now gated in one place
+(`ProtobufMessageWriter.canUsePackedNames`, one check per message, falling back to the typed tier
+which the fuzz test proves is byte-identical):
+
+- **`UseSingleQuotes`.** The quote characters are split between us and fastjson2, and the split
+  differs per length: both quotes are baked into the word for lengths 2-6 and 9-14, only the
+  opening quote for 7 and 15, neither for 8 and 16. fastjson2 emits its share from `this.quote`,
+  so a single-quote writer produced `{"optionalFixed32':7}` — **unparseable**, verified. The
+  `writeNameRaw` arrays had always *ignored* the feature and emitted valid double-quoted names, so
+  this was a regression from "ignores a feature" to "emits garbage", not a pre-existing gap.
+- **Byte order.** `JSONWriterUTF8` stores the word with `Unsafe.putLong` (native order), but
+  `JSONWriterUTF16.putLong(char[], int, long)` widens it by extracting bytes at hard-coded
+  little-endian positions (`v & 0xFF`, `(v & 0xFF00) << 8`, ...) with **no `BIG_ENDIAN` branch** —
+  confirmed by disassembly. One constant cannot satisfy both on a big-endian host, so the original
+  javadoc claim that native-order packing is endian-agnostic was wrong.
+
+`FieldNames.PACKED_NAMES_SUPPORTED` therefore self-checks the layout at class init: it packs a
+probe name of every length 2-16, writes it through both encodings, and compares the text. That
+turns a big-endian host *or* a future fastjson2 that moves the layout from silent corruption of
+every field name into a clean fallback.
+
 *Not supported, before or after:* JSONB output. `JSONWriterJSONB.writeNameRaw(byte[])` forwards to
 `writeRaw(byte[])`, which dumps JSON *text* bytes into a JSONB stream — so routing a protobuf
-message through `JSONB.toBytes` via `writerModule()` produced garbage already. `writeNameNRaw`
-produces different garbage. Also unchanged: `UseSingleQuotes` was, and still is, ignored for field
-names.
+message through `JSONB.toBytes` via `writerModule()` produced garbage already.
 
 ### 2. No boxing on repeated primitives (codegen + typed path) — no measured win
 
@@ -122,11 +146,19 @@ scalar-replacing the boxes: `IntArrayList.get` inlines, the `Integer` never esca
 escape analysis deletes it. If boxing were really allocating there, it alone would have been
 ~2,000 of the 5,385 B/op measured.
 
-Kept anyway, as insurance rather than a win: the elimination depends on the loop inlining, which
-does not hold in the interpreter or at C1 (relevant for short-lived processes that never reach
-C2), nor if a large `writeFields` body pushes the loop past the inlining budget. Do not expect it
-to show up in a benchmark. **This is the cautionary tale of the audit** — "obvious" boxing on a
-hot path is often already gone.
+Kept anyway, but only for one reason: escape analysis is a C2 optimization, so the boxing is real
+in the interpreter and at C1 — which is where a short-lived process (a CLI, a scale-to-zero
+function) spends most of its time. Do not expect it to show up in a steady-state benchmark.
+**This is the cautionary tale of the audit** — "obvious" boxing on a hot path is often already
+gone.
+
+The codegen half costs generated bytecode, since the primitive and generic loops are both emitted
+per repeated field. Worth knowing the ceiling: HotSpot's `DontCompileHugeMethods` refuses to
+JIT-compile *any* method over 8,000 bytecodes, at which point the encoder runs interpreted. The
+largest generated `writeFields` in this repo is `TestAllTypesProto3JsonEncoder` at **3,240
+bytecodes** (~200 fields, the official conformance sample), so there is ample headroom — but a wide
+message with many repeated primitive fields is the shape that approaches it, and no benchmark is
+near that size. If codegen grows further per field, measure a wide message before assuming.
 
 The typed path also gained `RepeatedDouble/Float/BoolAccessor`; those types previously fell
 through to the generic `RepeatedAccessor`, which re-switched on `JavaType` per element.
@@ -147,9 +179,14 @@ field's `String` name.
 `Struct`, `Value` and `ListValue` are ordinary compiled classes in protobuf-java, so the writer
 now takes a typed path when it has one: `struct.getFieldsMap()` instead of materializing the
 synthetic MapEntry list and pulling key/value back out through `getField()`, and
-`value.getKindCase()` — an int switch — instead of the descriptor dance. `DynamicMessage` keeps
-the reflective path, with the per-entry `getFields(entry, "key", "value")` lookup hoisted out of
-the loop (it was a cache probe *per struct entry*) and the `kind` oneof cached per Descriptor.
+`value.getKindCase()` — an int switch — instead of the descriptor dance. The switch carries a
+`default -> writeNull()` arm: a kind added by a future protobuf-java would otherwise write nothing
+after the caller has already emitted the name and colon, i.e. `{"k":}`, and javac has no
+exhaustiveness lint for switch *statements*. `DynamicMessage` keeps the reflective path, with the
+per-entry `getFields(entry, "key", "value")` lookup hoisted out of the loop (it was a cache probe
+*per struct entry*). The `kind` oneof is deliberately **not** cached: a strong-keyed `Descriptor`
+map would pin the descriptor pool of every schema ever loaded — a real leak for services that
+re-parse `.desc` files — to save two allocations on a path only `DynamicMessage` reaches.
 
 **+57%/+64% throughput and −657 B/op** — by far the biggest single win in the audit, and the one
 that was easiest to miss, because it was hiding inside a well-known-type helper rather than on the
@@ -172,8 +209,9 @@ immediately discarded.
 
 `FieldWriter.writeMap` called `findFieldByName("key")` and `findFieldByName("value")` — two hash
 lookups — on *every map field write*. Both are now resolved when the schema is built
-(`MessageSchema.FieldInfo.mapKeyDescriptor()`, `TypedFieldAccessor.MapAccessor`). The old
-two-argument overload is kept for callers without a cached schema.
+(`MessageSchema.FieldInfo.mapKeyDescriptor()`, `TypedFieldAccessor.MapAccessor`). Both remaining
+callers have a cached schema, so `writeMap` takes both descriptors and the old
+`findFieldByName`-resolving overload is gone.
 
 ### 8. Non-ASCII `json_name` (a correctness fix found on the way)
 
@@ -188,9 +226,25 @@ any string, and:
 `FieldNames.isRawWritable` now gates the raw arrays (printable ASCII, nothing escapable), anything
 else goes through `JSONWriter.writeName(String)` + `writeColon()` so fastjson2 escapes and
 transcodes it, and `FieldNames.javaStringLiteral` (mirrored in the generator) escapes emitted
-literals. Covered by `FieldNamesTest`.
+literals.
 
-### 9. One `JSONWriter.Context` per encoder
+A subtlety worth recording, because the first attempt got it wrong: a line terminator **must** be
+emitted as `\n`/`\r`, never as a unicode escape. javac translates unicode escapes *before*
+tokenizing (JLS 3.3), so `\u000a` turns back into a real newline and leaves the literal unclosed —
+the same uncompilable output, now harder to spot. `FieldNamesTest` compiles the emitted literal
+with `javax.tools.JavaCompiler` and reads the constant back, rather than asserting the weaker
+"body is printable ASCII" property that a broken `\u000a` satisfies.
+
+### 9. Deprecated fields (a second correctness fix)
+
+The name-constant loop skipped `[deprecated = true]` fields while the `writeFields` loop did not,
+so a deprecated field emitted a name write referencing a constant that was never declared —
+generated source that does not compile. No `.proto` in the repo has a deprecated field, so CI was
+green and this would have broken the first user build that did. Deprecated fields now serialize
+like any other (matching `JsonFormat` and both runtime paths), and both generators emit
+`@SuppressWarnings("deprecation")` on the class when needed, since consumers build with `-Werror`.
+
+### 10. One `JSONWriter.Context` per encoder
 
 `JSONWriter.of()` allocates a fresh `JSONWriter.Context` per call to carry configuration that
 never changes between encodes. `BuffJsonEncoder` now holds one and passes it to
@@ -199,6 +253,12 @@ context is read-only during writing.
 
 **−88 B/op on every benchmark**, which on `SimpleMessage` is 30% of the total. The cheapest item
 in the audit by a wide margin: five lines.
+
+One behavioural caveat, documented on the field rather than left implicit: `JSONWriter.Context`
+copies fastjson2's mutable global defaults (`defaultWriterFeatures`, `defaultWriterZoneId`,
+`defaultMaxLevel`, `defaultWriterFormat`) at construction. `JSONWriter.of()` re-read them per call,
+so a `JSON.config(...)` executed *after* an encoder was built used to take effect on the next
+encode and now does not. Configure fastjson2 before constructing encoders.
 
 ## Part 2 — Backlog, highest value first
 

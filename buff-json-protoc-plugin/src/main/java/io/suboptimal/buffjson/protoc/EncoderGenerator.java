@@ -80,6 +80,12 @@ final class EncoderGenerator {
 		sb.append("package ").append(javaPackage).append(";\n\n");
 		sb.append("import com.alibaba.fastjson2.JSONWriter;\n");
 		sb.append("import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;\n\n");
+		// Deprecated fields still serialize (JsonFormat and the two runtime paths emit
+		// them), so writeFields calls their @Deprecated getters. Consumers build with
+		// -Xlint:all -Werror, which would turn that into a compile error.
+		if (hasDeprecatedField(msgDesc)) {
+			sb.append("@SuppressWarnings(\"deprecation\")\n");
+		}
 		sb.append("public final class ").append(encoderSimpleName);
 		sb.append(" implements BuffJsonGeneratedEncoder<").append(messageClassName).append("> {\n\n");
 
@@ -94,10 +100,12 @@ final class EncoderGenerator {
 		// writeName<n>Raw family: one or two Unsafe.putLong stores, no arraycopy, and
 		// — because JSONWriterUTF16 widens the same packed bytes on the way out — no
 		// isUTF8() branch either. Anything else keeps the char[]/byte[] pair.
+		// Every field in getFields() gets a constant: writeFields() below emits a name
+		// write for each of them, so skipping any here (deprecated ones used to be
+		// skipped) produced a reference to an undeclared constant and generated source
+		// that did not compile.
 		boolean anyArrayName = false;
 		for (FieldDescriptor fd : msgDesc.getFields()) {
-			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
-				continue;
 			String jsonName = fd.getJsonName();
 			if (isPackable(jsonName)) {
 				int n = jsonName.length();
@@ -678,6 +686,21 @@ final class EncoderGenerator {
 	}
 
 	/**
+	 * Whether any field of {@code msgDesc} is {@code [deprecated = true]}, in which
+	 * case the generated class needs {@code @SuppressWarnings("deprecation")} — it
+	 * calls that field's {@code @Deprecated} accessor, and consumers compile with
+	 * {@code -Werror}.
+	 */
+	static boolean hasDeprecatedField(Descriptor msgDesc) {
+		for (FieldDescriptor fd : msgDesc.getFields()) {
+			if (fd.getOptions().getDeprecated()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Mirrors {@code FieldNames.isPackable} at code-generation time so the plugin
 	 * can pick the call shape without depending on buff-json's runtime classes
 	 * being loadable here.
@@ -701,18 +724,30 @@ final class EncoderGenerator {
 	/**
 	 * Mirrors {@code FieldNames.javaStringLiteral} — an explicit {@code json_name}
 	 * carrying a quote or a newline would otherwise emit source that does not
-	 * compile.
+	 * compile. Line terminators must use their {@code \n}/{@code \r} escapes rather
+	 * than unicode escapes: javac translates unicode escapes before tokenizing (JLS
+	 * 3.3), so a unicode-escaped line terminator reintroduces a real line break and
+	 * leaves the literal unclosed. Keep in sync with {@code FieldNames}.
 	 */
 	private static String javaStringLiteral(String jsonName) {
 		StringBuilder sb = new StringBuilder(jsonName.length() + 8).append('"');
 		for (int i = 0; i < jsonName.length(); i++) {
 			char c = jsonName.charAt(i);
-			if (c == '"' || c == '\\') {
-				sb.append('\\').append(c);
-			} else if (c >= 0x20 && c <= 0x7e) {
-				sb.append(c);
-			} else {
-				sb.append(String.format("\\u%04x", (int) c));
+			switch (c) {
+				case '"' -> sb.append("\\\"");
+				case '\\' -> sb.append("\\\\");
+				case '\n' -> sb.append("\\n");
+				case '\r' -> sb.append("\\r");
+				case '\t' -> sb.append("\\t");
+				case '\b' -> sb.append("\\b");
+				case '\f' -> sb.append("\\f");
+				default -> {
+					if (c >= 0x20 && c <= 0x7e) {
+						sb.append(c);
+					} else {
+						sb.append(String.format("\\u%04x", (int) c));
+					}
+				}
 			}
 		}
 		return sb.append('"').toString();

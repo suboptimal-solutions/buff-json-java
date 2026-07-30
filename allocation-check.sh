@@ -48,8 +48,8 @@ BUDGETS=(
     "io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonRuntime:1900"   # baseline ~1308 B/op
 
     # DoubleHeavy (25 doubles, IoT/telemetry profile) — number formatting cost.
-    "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf16:2200"    # baseline ~1773 B/op
-    "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf8:2100"     # baseline ~1749 B/op
+    "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf16:2200"    # baseline ~1685 B/op
+    "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf8:2100"     # baseline ~1661 B/op
 )
 
 # Parse args

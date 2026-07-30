@@ -182,16 +182,4 @@ public final class FieldWriter {
 		}
 		jsonWriter.endObject();
 	}
-
-	/**
-	 * Writes a map field, resolving the synthetic {@code key} field from the value
-	 * descriptor's containing type. Prefer the overload that takes both descriptors
-	 * — callers with a cached schema already have them, and {@code findFieldByName}
-	 * is a hash lookup per call.
-	 */
-	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries,
-			ProtobufMessageWriter writer) {
-		var keyFd = valueDescriptor.getContainingType().findFieldByName("key");
-		writeMap(jsonWriter, keyFd, valueDescriptor, entries, writer);
-	}
 }

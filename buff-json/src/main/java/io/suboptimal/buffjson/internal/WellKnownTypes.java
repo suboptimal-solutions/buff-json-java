@@ -15,7 +15,6 @@ import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.*;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
-import com.google.protobuf.Descriptors.OneofDescriptor;
 
 /**
  * Specialized JSON serialization for protobuf
@@ -91,9 +90,6 @@ public final class WellKnownTypes {
 	 * findFieldByName lookups.
 	 */
 	private static final ConcurrentHashMap<Descriptor, FieldDescriptor[]> WKT_FIELD_CACHE = new ConcurrentHashMap<>();
-
-	/** Cached {@code kind} oneof per {@code google.protobuf.Value} descriptor. */
-	private static final ConcurrentHashMap<Descriptor, OneofDescriptor> VALUE_KIND_CACHE = new ConcurrentHashMap<>();
 
 	private WellKnownTypes() {
 	}
@@ -401,15 +397,17 @@ public final class WellKnownTypes {
 		List<Message> entries = (List<Message>) message.getField(fields[0]);
 
 		jsonWriter.startObject();
-		// Every entry shares the same map-entry descriptor, so resolve key/value once
-		// rather than hitting the descriptor cache per entry.
-		FieldDescriptor[] entryFields = entries.isEmpty() ? null : getFields(entries.get(0), "key", "value");
-		for (var entry : entries) {
-			String key = (String) entry.getField(entryFields[0]);
-			Message value = (Message) entry.getField(entryFields[1]);
-			jsonWriter.writeName(key);
-			jsonWriter.writeColon();
-			writeValue(jsonWriter, value, writer);
+		if (!entries.isEmpty()) {
+			// Every entry shares the same map-entry descriptor, so resolve key/value once
+			// rather than hitting the descriptor cache per entry.
+			FieldDescriptor[] entryFields = getFields(entries.get(0), "key", "value");
+			for (var entry : entries) {
+				String key = (String) entry.getField(entryFields[0]);
+				Message value = (Message) entry.getField(entryFields[1]);
+				jsonWriter.writeName(key);
+				jsonWriter.writeColon();
+				writeValue(jsonWriter, value, writer);
+			}
 		}
 		jsonWriter.endObject();
 	}
@@ -426,13 +424,20 @@ public final class WellKnownTypes {
 				case BOOL_VALUE -> jsonWriter.writeBool(value.getBoolValue());
 				case STRUCT_VALUE -> writeStruct(jsonWriter, value.getStructValue(), writer);
 				case LIST_VALUE -> writeListValue(jsonWriter, value.getListValue(), writer);
+				// A kind added by a future protobuf-java would otherwise write nothing at
+				// all after the caller has already emitted the name and colon, producing
+				// structurally invalid JSON. javac has no exhaustiveness lint for switch
+				// statements, so this arm is the guard.
+				default -> jsonWriter.writeNull();
 			}
 			return;
 		}
 
-		var desc = message.getDescriptorForType();
-		var kindOneof = kindOneof(desc);
-		var activeField = message.getOneofFieldDescriptor(kindOneof);
+		// DynamicMessage only — compiled Value returned above. getOneofs() allocates a
+		// list-wrapper pair per call, but caching the result would mean a second
+		// strong-keyed Descriptor cache pinning the descriptor pool of every schema
+		// ever loaded, to save two allocations on a cold path.
+		var activeField = message.getOneofFieldDescriptor(message.getDescriptorForType().getOneofs().get(0));
 
 		if (activeField == null) {
 			jsonWriter.writeNull();
@@ -473,20 +478,6 @@ public final class WellKnownTypes {
 			writeValue(jsonWriter, values.get(i), writer);
 		}
 		jsonWriter.endArray();
-	}
-
-	/**
-	 * Cached {@code kind} oneof for a {@code google.protobuf.Value} descriptor.
-	 * {@code Descriptor.getOneofs()} wraps the backing array in a fresh
-	 * {@code Arrays.asList} + {@code unmodifiableList} on every call — two
-	 * allocations per Value written.
-	 */
-	private static OneofDescriptor kindOneof(Descriptor desc) {
-		var cached = VALUE_KIND_CACHE.get(desc);
-		if (cached != null) {
-			return cached;
-		}
-		return VALUE_KIND_CACHE.computeIfAbsent(desc, d -> d.getOneofs().get(0));
 	}
 
 	private static void writeWrapper(JSONWriter jsonWriter, Message message, ProtobufMessageWriter writer) {
