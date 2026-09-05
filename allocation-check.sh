@@ -48,6 +48,16 @@ BUDGETS=(
     # DoubleHeavy (25 doubles, IoT/telemetry profile) — number formatting cost.
     "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf16:2200"    # baseline ~1773 B/op
     "io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf8:2100"     # baseline ~1749 B/op
+
+    # Typed WKT helpers — guard the concrete getter paths in both encodings.
+    "io.suboptimal.buffjson.benchmarks.WktBenchmark.structRuntime:1050"           # baseline ~847 B/op (Java 21)
+    "io.suboptimal.buffjson.benchmarks.WktBenchmark.timestampRuntime:550"         # baseline ~464 B/op
+    "io.suboptimal.buffjson.benchmarks.EncodePathsBenchmark.structTypedUtf8:900"  # baseline ~712 B/op
+    "io.suboptimal.buffjson.benchmarks.EncodePathsBenchmark.timestampTypedUtf8:520" # baseline ~440 B/op
+
+    # Numeric map keys — no per-key numeric String on the default writer path.
+    "io.suboptimal.buffjson.benchmarks.RepeatedAndMapBenchmark.mapCompiled:6200"  # baseline ~5025 B/op
+    "io.suboptimal.buffjson.benchmarks.RepeatedAndMapBenchmark.mapRuntime:6000"    # baseline ~4805 B/op
 )
 
 # Parse args

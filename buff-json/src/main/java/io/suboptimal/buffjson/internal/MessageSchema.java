@@ -7,6 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 
+import io.suboptimal.buffjson.internal.typed.FieldName;
+
 /**
  * Cached metadata for a protobuf message type, built from its
  * {@link Descriptor}.
@@ -79,47 +81,21 @@ public final class MessageSchema {
 		private final boolean isRepeated;
 		private final boolean isMapField;
 		private final boolean hasPresence;
+		private final FieldDescriptor mapKeyDescriptor;
 		private final FieldDescriptor mapValueDescriptor;
 
 		FieldInfo(FieldDescriptor fd) {
 			this.descriptor = fd;
 			this.jsonName = fd.getJsonName();
-			this.nameWithColon = buildNameWithColon(this.jsonName);
-			this.nameWithColonUtf8 = buildNameWithColonUtf8(this.jsonName);
+			FieldName encodedName = FieldName.of(this.jsonName);
+			this.nameWithColon = encodedName.chars();
+			this.nameWithColonUtf8 = encodedName.utf8();
 			this.javaType = fd.getJavaType();
 			this.isRepeated = fd.isRepeated();
 			this.isMapField = fd.isMapField();
 			this.hasPresence = fd.hasPresence();
+			this.mapKeyDescriptor = fd.isMapField() ? fd.getMessageType().findFieldByName("key") : null;
 			this.mapValueDescriptor = fd.isMapField() ? fd.getMessageType().findFieldByName("value") : null;
-		}
-
-		/**
-		 * Pre-computes {@code "fieldName":} as a char array for the UTF-16
-		 * {@link com.alibaba.fastjson2.JSONWriter#writeNameRaw(char[])} path. Protobuf
-		 * JSON field names are always ASCII.
-		 */
-		private static char[] buildNameWithColon(String name) {
-			char[] chars = new char[name.length() + 3];
-			chars[0] = '"';
-			name.getChars(0, name.length(), chars, 1);
-			chars[name.length() + 1] = '"';
-			chars[name.length() + 2] = ':';
-			return chars;
-		}
-
-		/**
-		 * Pre-computes {@code "fieldName":} as a byte array for the UTF-8
-		 * {@link com.alibaba.fastjson2.JSONWriter#writeNameRaw(byte[])} path, avoiding
-		 * char→byte transcoding per field write. ASCII-only.
-		 */
-		private static byte[] buildNameWithColonUtf8(String name) {
-			byte[] bytes = new byte[name.length() + 3];
-			bytes[0] = '"';
-			for (int i = 0; i < name.length(); i++)
-				bytes[i + 1] = (byte) name.charAt(i);
-			bytes[name.length() + 1] = '"';
-			bytes[name.length() + 2] = ':';
-			return bytes;
 		}
 
 		public FieldDescriptor descriptor() {
@@ -152,6 +128,10 @@ public final class MessageSchema {
 
 		public boolean hasPresence() {
 			return hasPresence;
+		}
+
+		public FieldDescriptor mapKeyDescriptor() {
+			return mapKeyDescriptor;
 		}
 
 		public FieldDescriptor mapValueDescriptor() {

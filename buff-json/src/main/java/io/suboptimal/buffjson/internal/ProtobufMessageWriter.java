@@ -125,7 +125,8 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				if (entries.isEmpty())
 					continue;
 				writeName(jsonWriter, fieldInfo, utf8);
-				FieldWriter.writeMap(jsonWriter, fieldInfo.mapValueDescriptor(), entries, this);
+				FieldWriter.writeMap(jsonWriter, fieldInfo.mapKeyDescriptor(), fieldInfo.mapValueDescriptor(), entries,
+						this);
 			} else if (fieldInfo.isRepeated()) {
 				List<?> values = (List<?>) message.getField(fd);
 				if (values.isEmpty())
@@ -133,13 +134,11 @@ public final class ProtobufMessageWriter implements ObjectWriter<Message> {
 				writeName(jsonWriter, fieldInfo, utf8);
 				FieldWriter.writeRepeated(jsonWriter, fd, values, this);
 			} else {
-				Object value = message.getField(fd);
-				if (fieldInfo.hasPresence()) {
-					if (!message.hasField(fd))
-						continue;
-				} else if (isDefaultValue(fieldInfo, value)) {
+				if (fieldInfo.hasPresence() && !message.hasField(fd))
 					continue;
-				}
+				Object value = message.getField(fd);
+				if (!fieldInfo.hasPresence() && isDefaultValue(fieldInfo, value))
+					continue;
 				writeName(jsonWriter, fieldInfo, utf8);
 				FieldWriter.writeValue(jsonWriter, fd, value, this);
 			}

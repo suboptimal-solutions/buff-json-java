@@ -18,6 +18,8 @@ Older benchmarks (`ComplexMessageBenchmark`, `WktBenchmark`, etc.) still use `bu
 
 ## Benchmark Classes
 
+`EncodePathsBenchmark` is an ordinary JMH matrix ported from the performance stash: simple, complex, map-heavy, Struct, and Timestamp shapes × codegen/typed/reflection × UTF-16/UTF-8. It has no CodSpeed dependency.
+
 |              Class              |                             Message                             |                    Focus                    |
 |---------------------------------|-----------------------------------------------------------------|---------------------------------------------|
 | `SimpleMessageBenchmark`        | 6-field flat message (string, int32, int64, double, bool, enum) | Scalar baseline (UTF-16/UTF-8 split)        |
@@ -51,7 +53,7 @@ Older benchmarks (`ComplexMessageBenchmark`, `WktBenchmark`, etc.) still use `bu
 
 ## Allocation Regression Check
 
-`./allocation-check.sh` (at repo root) runs JMH `-prof gc` on a representative subset of benchmarks (SimpleMessage codegen+runtime × UTF-16+UTF-8, ComplexMessage codegen+runtime, DoubleHeavy codegen × UTF-16+UTF-8) and asserts `gc.alloc.rate.norm` (B/op) stays within per-benchmark budgets. Total runtime ~1 minute; `--quick` flag for local iteration. Wired into CI as a separate `allocation-check` job. Catches missed zero-alloc paths and new String/byte[] allocations on the hot path.
+`./allocation-check.sh` (at repo root) runs JMH `-prof gc` on a representative subset of benchmarks (SimpleMessage codegen+runtime × UTF-16+UTF-8, ComplexMessage codegen+runtime, DoubleHeavy codegen × UTF-16+UTF-8, typed Struct/Timestamp × UTF-16+UTF-8, and map-heavy codegen+runtime) and asserts `gc.alloc.rate.norm` (B/op) stays within per-benchmark budgets. Total runtime ~2 minutes; `--quick` flag for local iteration. Wired into CI as a separate `allocation-check` job. Catches missed zero-alloc paths and new String/byte[] allocations on the hot path.
 
 ## Proto Files
 

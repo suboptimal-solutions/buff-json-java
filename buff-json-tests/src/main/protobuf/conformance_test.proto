@@ -177,6 +177,22 @@ message TestCustomJsonName {
     string name = 2 [json_name = "Name"];
 }
 
+// Exercises JSON escaping and Java source escaping in both generated codecs.
+message TestEscapedJsonNames {
+    int32 unicode = 1 [json_name = "naïve日本🚀"];
+    string quoted = 2 [json_name = "quoted\"name"];
+    bool backslash = 3 [json_name = "back\\slash"];
+    int64 controls = 4 [json_name = "line\nreturn\rtab\tback\bform\f"];
+    string literal_escape = 5 [json_name = "literal\\u000a"];
+    repeated int32 numbers = 6 [json_name = "list\"[]"];
+    map<string, string> labels = 7 [json_name = "map\"key"];
+    optional int32 present = 8 [json_name = "present\"zero"];
+    oneof selection {
+        string chosen = 9 [json_name = "choice\"value"];
+    }
+    NestedMessage nested = 10 [json_name = "nested\nvalue"];
+}
+
 // Any type
 message TestAny {
     google.protobuf.Any value = 1;
@@ -185,4 +201,30 @@ message TestAny {
 // Empty type
 message TestEmpty {
     google.protobuf.Empty value = 1;
+}
+
+// Fields marked [deprecated = true]. Deprecation is a Java-API annotation
+// concern, not a wire/JSON one, so these serialize exactly like any other
+// field — matching JsonFormat.printer(). Covers every codegen branch that
+// emits a NAME_<FIELD> constant (implicit presence, explicit presence,
+// repeated, map, nested message, enum, WKT, oneof member), so a generator
+// that skips deprecated fields in one loop but not the other fails to
+// compile rather than silently diverging.
+message TestDeprecatedFields {
+    int32 not_deprecated = 1;
+    int32 deprecated_int32 = 2 [deprecated = true];
+    int64 deprecated_int64 = 3 [deprecated = true];
+    string deprecated_string = 4 [deprecated = true];
+    bytes deprecated_bytes = 5 [deprecated = true];
+    optional int32 deprecated_optional_int32 = 6 [deprecated = true];
+    repeated int32 deprecated_repeated_int32 = 7 [deprecated = true];
+    repeated string deprecated_repeated_string = 8 [deprecated = true];
+    map<string, int32> deprecated_map = 9 [deprecated = true];
+    NestedMessage deprecated_message = 10 [deprecated = true];
+    TestEnum deprecated_enum = 11 [deprecated = true];
+    google.protobuf.Timestamp deprecated_timestamp = 12 [deprecated = true];
+    oneof deprecated_oneof {
+        int32 deprecated_oneof_int32 = 13 [deprecated = true];
+        string deprecated_oneof_string = 14;
+    }
 }

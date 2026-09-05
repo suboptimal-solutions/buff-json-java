@@ -26,6 +26,9 @@ final class DecoderGenerator {
 		sb.append("package ").append(javaPackage).append(";\n\n");
 		sb.append("import com.alibaba.fastjson2.JSONReader;\n");
 		sb.append("import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;\n\n");
+		// [deprecated = true] fields/types get @Deprecated accessors from protoc;
+		// calling them from generated code would trip -Xlint:deprecation -Werror.
+		sb.append("@SuppressWarnings(\"deprecation\")\n");
 		sb.append("public final class ").append(decoderSimpleName);
 		sb.append(" implements BuffJsonGeneratedDecoder<").append(messageClassName).append("> {\n\n");
 
@@ -56,9 +59,9 @@ final class DecoderGenerator {
 
 		for (FieldDescriptor fd : msgDesc.getFields()) {
 			String jsonName = fd.getJsonName();
-			sb.append("                case \"").append(jsonName).append("\"");
+			sb.append("                case ").append(SourceLiterals.javaString(jsonName));
 			if (!fd.getName().equals(jsonName)) {
-				sb.append(", \"").append(fd.getName()).append("\"");
+				sb.append(", ").append(SourceLiterals.javaString(fd.getName()));
 			}
 			sb.append(" -> ");
 

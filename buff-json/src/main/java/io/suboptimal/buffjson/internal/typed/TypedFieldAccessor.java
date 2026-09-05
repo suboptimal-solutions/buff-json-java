@@ -273,7 +273,7 @@ public sealed interface TypedFieldAccessor {
 		}
 	}
 
-	record PresenceMessageAccessor(Function<Message, Message> getter, Predicate<Message> has,
+	record PresenceMessageAccessor(Function<Message, Message> getter, Predicate<Message> has, boolean wellKnown,
 			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
@@ -281,7 +281,7 @@ public sealed interface TypedFieldAccessor {
 				return;
 			name.writeTo(jw);
 			Message nested = getter.apply(msg);
-			if (WellKnownTypes.isWellKnownType(nested.getDescriptorForType()))
+			if (wellKnown)
 				WellKnownTypes.write(jw, nested, writer);
 			else
 				writer.writeMessage(jw, nested);
@@ -365,7 +365,7 @@ public sealed interface TypedFieldAccessor {
 	}
 
 	@SuppressWarnings("unchecked")
-	record RepeatedMessageAccessor(Function<Message, List<?>> listGetter,
+	record RepeatedMessageAccessor(Function<Message, List<?>> listGetter, boolean wellKnown,
 			FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
@@ -378,7 +378,7 @@ public sealed interface TypedFieldAccessor {
 				if (i > 0)
 					jw.writeComma();
 				Message nested = values.get(i);
-				if (WellKnownTypes.isWellKnownType(nested.getDescriptorForType()))
+				if (wellKnown)
 					WellKnownTypes.write(jw, nested, writer);
 				else
 					writer.writeMessage(jw, nested);
@@ -411,20 +411,20 @@ public sealed interface TypedFieldAccessor {
 
 	// --- Map fields ---
 
-	record MapAccessor(Function<Message, List<?>> entriesGetter, FieldDescriptor mapValueDescriptor,
-			FieldName name) implements TypedFieldAccessor {
+	record MapAccessor(Function<Message, List<?>> entriesGetter, FieldDescriptor mapKeyDescriptor,
+			FieldDescriptor mapValueDescriptor, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			List<?> entries = entriesGetter.apply(msg);
 			if (entries.isEmpty())
 				return;
 			name.writeTo(jw);
-			FieldWriter.writeMap(jw, mapValueDescriptor, entries, writer);
+			FieldWriter.writeMap(jw, mapKeyDescriptor, mapValueDescriptor, entries, writer);
 		}
 	}
 
-	record TypedMapAccessor(Function<Message, java.util.Map<?, ?>> mapGetter, FieldDescriptor valueFd,
-			boolean stringKey, FieldName name) implements TypedFieldAccessor {
+	record TypedMapAccessor(Function<Message, java.util.Map<?, ?>> mapGetter, FieldDescriptor keyFd,
+			FieldDescriptor valueFd, FieldName name) implements TypedFieldAccessor {
 		@Override
 		public void write(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
 			java.util.Map<?, ?> map = mapGetter.apply(msg);
@@ -432,11 +432,13 @@ public sealed interface TypedFieldAccessor {
 				return;
 			name.writeTo(jw);
 			jw.startObject();
+			boolean first = true;
 			for (var entry : map.entrySet()) {
-				if (stringKey)
-					jw.writeName((String) entry.getKey());
+				if (first)
+					first = false;
 				else
-					jw.writeName(entry.getKey().toString());
+					jw.writeComma();
+				FieldWriter.writeMapKey(jw, keyFd, entry.getKey());
 				jw.writeColon();
 				FieldWriter.writeValue(jw, valueFd, entry.getValue(), writer);
 			}

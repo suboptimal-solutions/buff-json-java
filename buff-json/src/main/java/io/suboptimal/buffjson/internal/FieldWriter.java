@@ -171,18 +171,61 @@ public final class FieldWriter {
 	 * {@link com.google.protobuf.MapEntry} and
 	 * {@link com.google.protobuf.DynamicMessage} map entries.
 	 */
-	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor valueDescriptor, List<?> entries,
+	public static void writeMap(JSONWriter jsonWriter, FieldDescriptor keyFd, FieldDescriptor valueFd, List<?> entries,
 			ProtobufMessageWriter writer) {
-		var entryDesc = valueDescriptor.getContainingType();
-		var keyFd = entryDesc.findFieldByName("key");
-		var valueFd = entryDesc.findFieldByName("value");
 		jsonWriter.startObject();
+		boolean first = true;
 		for (Object entry : entries) {
 			Message entryMsg = (Message) entry;
-			jsonWriter.writeName(entryMsg.getField(keyFd).toString());
+			if (first)
+				first = false;
+			else
+				jsonWriter.writeComma();
+			writeMapKey(jsonWriter, keyFd, entryMsg.getField(keyFd));
 			jsonWriter.writeColon();
 			writeValue(jsonWriter, valueFd, entryMsg.getField(valueFd), writer);
 		}
 		jsonWriter.endObject();
 	}
+
+	/** Writes a quoted map key; the caller writes its comma and colon. */
+	public static void writeMapKey(JSONWriter jsonWriter, FieldDescriptor keyDescriptor, Object key) {
+		switch (keyDescriptor.getJavaType()) {
+			case INT -> {
+				int value = (int) key;
+				var type = keyDescriptor.getType();
+				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32)
+					writeLongMapKey(jsonWriter, Integer.toUnsignedLong(value), false);
+				else
+					jsonWriter.writeString(value);
+			}
+			case LONG -> {
+				long value = (long) key;
+				var type = keyDescriptor.getType();
+				writeLongMapKey(jsonWriter, value,
+						type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64);
+			}
+			case BOOLEAN -> jsonWriter.writeString((boolean) key ? "true" : "false");
+			case STRING -> jsonWriter.writeString((String) key);
+			default -> throw new IllegalArgumentException("Unsupported map key type: " + keyDescriptor.getJavaType());
+		}
+	}
+
+	/**
+	 * Writes numeric keys without letting number-formatting features change their
+	 * spelling.
+	 */
+	public static void writeLongMapKey(JSONWriter jsonWriter, long key, boolean unsigned) {
+		// fastjson2 2.0.63 writeString(long) delegates to writeInt64: BrowserCompatible
+		// can add a second pair of quotes, and WriteClassName can append an L suffix.
+		if ((jsonWriter.getFeatures()
+				& (JSONWriter.Feature.BrowserCompatible.mask | JSONWriter.Feature.WriteClassName.mask)) != 0) {
+			jsonWriter.writeString(unsigned ? Long.toUnsignedString(key) : Long.toString(key));
+		} else if (unsigned) {
+			WellKnownTypes.writeUnsignedLongString(jsonWriter, key);
+		} else {
+			jsonWriter.writeString(key);
+		}
+	}
+
 }
