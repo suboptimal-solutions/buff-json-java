@@ -23,8 +23,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BENCHMARKS_JAR="buff-json-benchmarks/target/benchmarks.jar"
+BENCHMARKS_JAR="${BENCHMARKS_JAR:-buff-json-benchmarks/target/benchmarks.jar}"
 RESULTS_FILE="${RESULTS_FILE:-/tmp/buff-json-alloc-check.json}"
+LOG_FILE="${LOG_FILE:-/tmp/buff-json-alloc-check.log}"
 
 # Budgets in B/op (gc.alloc.rate.norm).
 # Format: <fully-qualified benchmark>:<budget>
@@ -80,7 +81,7 @@ if [ "$QUICK" = true ]; then
     WI=1; I=2; F=1; W=1; R=1
 fi
 
-# Build benchmark jar if missing or older than buff-json sources
+# Build benchmark jar if missing (CI builds it from a clean checkout first)
 if [ ! -f "$BENCHMARKS_JAR" ]; then
     echo "Benchmark jar not found — building..."
     mvn package -DskipTests -q || { echo "Build failed" >&2; exit 2; }
@@ -95,18 +96,18 @@ echo ""
 
 java -jar "$BENCHMARKS_JAR" \
     "$PATTERN" \
-    -prof gc \
+    -prof gc -foe true \
     -wi "$WI" -i "$I" -f "$F" -r "$R" -w "$W" \
     -rf json -rff "$RESULTS_FILE" \
-    > /tmp/buff-json-alloc-check.log 2>&1 || {
-        echo "JMH run failed — see /tmp/buff-json-alloc-check.log" >&2
-        tail -40 /tmp/buff-json-alloc-check.log >&2
+    > "$LOG_FILE" 2>&1 || {
+        echo "JMH run failed — see $LOG_FILE" >&2
+        tail -40 "$LOG_FILE" >&2
         exit 2
     }
 
 # Parse JSON results and assert budgets
 python3 - "$RESULTS_FILE" "${BUDGETS[@]}" << 'PYTHON_EOF'
-import json, sys
+import json, math, sys
 
 results_file = sys.argv[1]
 budgets = {}
@@ -128,8 +129,11 @@ for r in results:
         continue
     seen.add(name)
     sm = r["secondaryMetrics"].get("gc.alloc.rate.norm")
-    if sm is None:
-        print(f"{name:<70} {'no data':>14} {budgets[name]:>10.0f} {'SKIP':>8}")
+    if (sm is None or sm.get("scoreUnit") != "B/op"
+            or not isinstance(sm.get("score"), (int, float))
+            or not math.isfinite(sm["score"]) or sm["score"] < 0):
+        print(f"{name:<70} {'invalid data':>14} {budgets[name]:>10.0f} {'FAIL':>8}")
+        failed.append((name, None, budgets[name]))
         continue
     score = sm["score"]
     budget = budgets[name]
@@ -152,7 +156,7 @@ if failed:
     for name, score, budget in failed:
         short = name.replace("io.suboptimal.buffjson.benchmarks.", "")
         if score is None:
-            print(f"  {short}: not reported in JMH results (budget {budget:.0f} B/op)")
+            print(f"  {short}: missing valid allocation data (budget {budget:.0f} B/op)")
         else:
             print(f"  {short}: {score:.1f} B/op > {budget:.0f} B/op (over by {score-budget:.0f})")
     sys.exit(1)

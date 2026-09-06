@@ -51,6 +51,10 @@ Older benchmarks (`ComplexMessageBenchmark`, `WktBenchmark`, etc.) still use `bu
 - `benchmark-reports/<timestamp>-results.json` — machine-readable JSON
 - `benchmark-reports/<timestamp>-report.md` — markdown report with codegen/runtime/JsonFormat comparison table
 
+## CI Performance Comparison
+
+The `Performance` workflow compares exact base/head revisions on Java 21 and 25, using identical candidate benchmark sources and a shared runner per JVM. `.github/performance/compare.py` runs the 30-case `EncodePathsBenchmark` matrix; `report.py` validates data and renders advisory throughput/allocation changes. A separate trusted `workflow_run` publisher updates PR comments and commit checks. See [performance CI documentation](../docs/performance-ci.md) for baselines, protocol, reporting, rollout, and local smoke runs.
+
 ## Allocation Regression Check
 
 `./allocation-check.sh` (at repo root) runs JMH `-prof gc` on a representative subset of benchmarks (SimpleMessage codegen+runtime × UTF-16+UTF-8, ComplexMessage codegen+runtime, DoubleHeavy codegen × UTF-16+UTF-8, typed Struct/Timestamp × UTF-16+UTF-8, and map-heavy codegen+runtime) and asserts `gc.alloc.rate.norm` (B/op) stays within per-benchmark budgets. Total runtime ~2 minutes; `--quick` flag for local iteration. Wired into CI as a separate `allocation-check` job. Catches missed zero-alloc paths and new String/byte[] allocations on the hot path.

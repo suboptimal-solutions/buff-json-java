@@ -1,0 +1,88 @@
+name: Performance
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Baseline commit/ref (empty uses the candidate's first parent)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tooling:
+    name: Validate performance tooling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Test comparison and publication logic
+        run: python3 -m unittest discover -s .github/performance/tests -v
+
+  compare:
+    name: JMH comparison (Java ${{ matrix.java }})
+    needs: tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['21', '25']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: ${{ matrix.java }}
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/performance-maven
+          key: performance-${{ runner.os }}-${{ runner.arch }}-java${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: performance-${{ runner.os }}-${{ runner.arch }}-java${{ matrix.java }}-
+      - name: Build and compare immutable revisions
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          INPUT_BASE: ${{ inputs.base }}
+          JAVA_VERSION: ${{ matrix.java }}
+          PERFORMANCE_MAVEN_REPO: ${{ runner.temp }}/performance-maven
+        run: |
+          base="${PR_BASE:-${INPUT_BASE:-${PUSH_BASE:-HEAD^}}}"
+          if [[ "$base" == 0000000000000000000000000000000000000000 ]]; then
+            base=HEAD^
+          fi
+          python3 .github/performance/compare.py \
+            --base "$base" --candidate HEAD --java "$JAVA_VERSION" \
+            --output "benchmark-reports/ci-java${JAVA_VERSION}"
+      - name: Upload validated summary for publisher
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-summary-java${{ matrix.java }}
+          path: benchmark-reports/ci-java${{ matrix.java }}/summary.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+      - name: Upload raw JMH results, environment and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-raw-java${{ matrix.java }}
+          path: benchmark-reports/ci-java${{ matrix.java }}/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 90

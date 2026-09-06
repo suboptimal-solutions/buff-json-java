@@ -41,7 +41,32 @@ jobs:
         run: mvn package -DskipTests -B
 
       - name: Run allocation regression check
-        run: ./allocation-check.sh
+        env:
+          RESULTS_FILE: ${{ runner.temp }}/allocation-results.json
+          LOG_FILE: ${{ runner.temp }}/allocation-jmh.log
+        run: ./allocation-check.sh | tee "$RUNNER_TEMP/allocation-report.txt"
+
+      - name: Include allocation budgets in job summary
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/allocation-report.txt" ]]; then
+            echo '### Allocation budgets' >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/allocation-report.txt" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload allocation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allocation-results
+          path: |
+            ${{ runner.temp }}/allocation-results.json
+            ${{ runner.temp }}/allocation-jmh.log
+            ${{ runner.temp }}/allocation-report.txt
+          retention-days: 90
+          if-no-files-found: warn
 
   conformance:
     # Runs the official protobuf proto3 JSON conformance suite once, on a single
