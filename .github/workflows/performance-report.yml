@@ -1,0 +1,32 @@
+name: Publish performance report
+
+on:
+  workflow_run:
+    workflows: [Performance]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: performance-report-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Only trusted default-branch code executes in this write-permission job.
+      # Benchmark artifacts are parsed as bounded JSON, never extracted/executed.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Publish commit check and update PR report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/performance/publish.py

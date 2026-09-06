@@ -53,6 +53,9 @@ final class EncoderGenerator {
 		sb.append("package ").append(javaPackage).append(";\n\n");
 		sb.append("import com.alibaba.fastjson2.JSONWriter;\n");
 		sb.append("import io.suboptimal.buffjson.BuffJsonGeneratedEncoder;\n\n");
+		// [deprecated = true] fields/types get @Deprecated accessors from protoc;
+		// calling them from generated code would trip -Xlint:deprecation -Werror.
+		sb.append("@SuppressWarnings(\"deprecation\")\n");
 		sb.append("public final class ").append(encoderSimpleName);
 		sb.append(" implements BuffJsonGeneratedEncoder<").append(messageClassName).append("> {\n\n");
 
@@ -60,36 +63,16 @@ final class EncoderGenerator {
 		sb.append("    public static final ").append(encoderSimpleName).append(" INSTANCE = new ")
 				.append(encoderSimpleName).append("();\n\n");
 
-		// Name constants: char[] for UTF-16 writers, byte[] for UTF-8 writers.
-		// Pre-encoded at class init; ASCII-only since proto field names are ASCII.
+		// Escape JSON names during generation, then quote the encoded text as Java.
+		// Keep the existing char[]/byte[] hot path, including for custom json_name.
 		for (FieldDescriptor fd : msgDesc.getFields()) {
-			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
-				continue;
-			String jsonName = fd.getJsonName();
+			String literal = SourceLiterals.javaString(SourceLiterals.jsonFieldName(fd.getJsonName()));
 			sb.append("    private static final char[] NAME_").append(constantName(fd));
-			sb.append(" = nameChars(\"").append(jsonName).append("\");\n");
+			sb.append(" = ").append(literal).append(".toCharArray();\n");
 			sb.append("    private static final byte[] NAME_").append(constantName(fd));
-			sb.append("_BYTES = nameBytes(\"").append(jsonName).append("\");\n");
+			sb.append("_BYTES = ").append(literal).append(".getBytes(java.nio.charset.StandardCharsets.UTF_8);\n");
 		}
 		sb.append("\n");
-
-		// nameChars / nameBytes helpers
-		sb.append("    private static char[] nameChars(String name) {\n");
-		sb.append("        char[] chars = new char[name.length() + 3];\n");
-		sb.append("        chars[0] = '\"';\n");
-		sb.append("        name.getChars(0, name.length(), chars, 1);\n");
-		sb.append("        chars[name.length() + 1] = '\"';\n");
-		sb.append("        chars[name.length() + 2] = ':';\n");
-		sb.append("        return chars;\n");
-		sb.append("    }\n\n");
-		sb.append("    private static byte[] nameBytes(String name) {\n");
-		sb.append("        byte[] bytes = new byte[name.length() + 3];\n");
-		sb.append("        bytes[0] = '\"';\n");
-		sb.append("        for (int i = 0; i < name.length(); i++) bytes[i + 1] = (byte) name.charAt(i);\n");
-		sb.append("        bytes[name.length() + 1] = '\"';\n");
-		sb.append("        bytes[name.length() + 2] = ':';\n");
-		sb.append("        return bytes;\n");
-		sb.append("    }\n\n");
 
 		// Pre-collect enum types used by int-valued fields (implicit presence,
 		// explicit presence, oneof) so we can generate cached name arrays.
@@ -351,13 +334,10 @@ final class EncoderGenerator {
 		sb.append("            if (!map.isEmpty()) {\n");
 		emitWriteName(sb, constName, "                ");
 		sb.append("                jsonWriter.startObject();\n");
+		sb.append("                boolean first = true;\n");
 		sb.append("                for (var entry : map.entrySet()) {\n");
-		if (keyFd.getJavaType() == FieldDescriptor.JavaType.STRING) {
-			// Key is already String — call writeName directly without toString()
-			sb.append("                    jsonWriter.writeName(entry.getKey());\n");
-		} else {
-			sb.append("                    jsonWriter.writeName(entry.getKey().toString());\n");
-		}
+		sb.append("                    if (first) first = false; else jsonWriter.writeComma();\n");
+		writeMapKey(sb, keyFd, "entry.getKey()");
 		sb.append("                    jsonWriter.writeColon();\n");
 
 		switch (valueFd.getJavaType()) {
@@ -447,6 +427,33 @@ final class EncoderGenerator {
 					.append(expr).append(");\n");
 		} else {
 			sb.append("                jsonWriter.writeString(").append(expr).append(");\n");
+		}
+	}
+
+	private static void writeMapKey(StringBuilder sb, FieldDescriptor fd, String expr) {
+		switch (fd.getJavaType()) {
+			case INT -> {
+				var type = fd.getType();
+				if (type == FieldDescriptor.Type.UINT32 || type == FieldDescriptor.Type.FIXED32) {
+					sb.append(
+							"                    io.suboptimal.buffjson.internal.FieldWriter.writeLongMapKey(jsonWriter, Integer.toUnsignedLong(")
+							.append(expr).append("), false);\n");
+				} else {
+					sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+				}
+			}
+			case LONG -> {
+				var type = fd.getType();
+				sb.append(
+						"                    io.suboptimal.buffjson.internal.FieldWriter.writeLongMapKey(jsonWriter, ")
+						.append(expr).append(", ")
+						.append(type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64)
+						.append(");\n");
+			}
+			case BOOLEAN -> sb.append("                    jsonWriter.writeString(").append(expr)
+					.append(" ? \"true\" : \"false\");\n");
+			case STRING -> sb.append("                    jsonWriter.writeString(").append(expr).append(");\n");
+			default -> throw new IllegalArgumentException("Unsupported map key type: " + fd.getJavaType());
 		}
 	}
 

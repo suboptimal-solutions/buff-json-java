@@ -81,8 +81,9 @@ public final class TypedMessageSchema {
 				}
 				continue;
 			}
-			if (fd.getOptions().hasDeprecated() && fd.getOptions().getDeprecated())
-				continue;
+			// [deprecated = true] fields are serialized like any other field, matching
+			// the reflection path (MessageSchema) and JsonFormat — deprecation is a
+			// Java-API concern, not a wire/JSON one.
 			var accessor = TypedFieldAccessorFactory.create(fd, messageClass);
 			if (accessor == null)
 				return FAILED;

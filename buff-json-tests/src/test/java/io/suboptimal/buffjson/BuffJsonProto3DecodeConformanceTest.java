@@ -869,6 +869,42 @@ class BuffJsonProto3DecodeConformanceTest {
 	}
 
 	// =========================================================================
+	// Deprecated fields
+	// =========================================================================
+	/**
+	 * Deprecated fields are decoded like any other field on both paths — the encode
+	 * side emits them (matching {@code JsonFormat}), so dropping them here would
+	 * break the round-trip.
+	 */
+	@Nested
+	@SuppressWarnings("deprecation")
+	class DeprecatedFields {
+
+		@Test
+		void allDeprecatedFieldsSet() throws Exception {
+			assertDecodeMatchesOriginal(TestDeprecatedFields.newBuilder().setNotDeprecated(1).setDeprecatedInt32(42)
+					.setDeprecatedInt64(123456789012345L).setDeprecatedString("hello")
+					.setDeprecatedBytes(ByteString.copyFromUtf8("binary data")).setDeprecatedOptionalInt32(0)
+					.addDeprecatedRepeatedInt32(1).addDeprecatedRepeatedInt32(2).addDeprecatedRepeatedString("a")
+					.putDeprecatedMap("k", 7)
+					.setDeprecatedMessage(NestedMessage.newBuilder().setValue(9).setName("nested").build())
+					.setDeprecatedEnum(TestEnum.TEST_ENUM_BAR)
+					.setDeprecatedTimestamp(Timestamp.newBuilder().setSeconds(1234567890).setNanos(123000000).build())
+					.setDeprecatedOneofInt32(5).build());
+		}
+
+		@Test
+		void deprecatedDefaults() throws Exception {
+			assertDecodeMatchesOriginal(TestDeprecatedFields.getDefaultInstance());
+		}
+
+		@Test
+		void deprecatedOneofNonDeprecatedMember() throws Exception {
+			assertDecodeMatchesOriginal(TestDeprecatedFields.newBuilder().setDeprecatedOneofString("set").build());
+		}
+	}
+
+	// =========================================================================
 	// Edge cases: empty messages
 	// =========================================================================
 	@Nested

@@ -33,7 +33,7 @@ For each non-WKT, non-map-entry message type:
 
 1. A `FooJsonEncoder.java` class implementing `BuffJsonGeneratedEncoder<Foo>`
 2. A `public static final INSTANCE` singleton for direct calls from other encoders
-3. Pre-computed name constants per field — both `char[] NAME_*` (UTF-16 path) and `byte[] NAME_*_BYTES` (UTF-8 path), populated from `nameChars(...)` / `nameBytes(...)` helpers at class init. ASCII-only.
+3. Pre-computed name constants per field — both `char[] NAME_*` (UTF-16 path) and `byte[] NAME_*_BYTES` (UTF-8 path), JSON-escaped at generation time and emitted as Java string literals. UTF-8 bytes use `StandardCharsets.UTF_8`, supporting custom Unicode names.
 4. Pre-cached `String[] ENUM_*_NAMES` arrays for each enum type (built from enum descriptor at class init, avoiding `UNRECOGNIZED` which throws from `getNumber()`)
 5. A `writeFields(JSONWriter, T, ProtobufMessageWriter)` method with inlined per-field encoding logic, opening with `boolean utf8 = jsonWriter.isUTF8();` so each field-name write dispatches via `if (utf8) writeNameRaw(NAME_X_BYTES); else writeNameRaw(NAME_X);`
 6. A `message_implements` insertion point per message adding `BuffJsonCodecHolder` to the implements clause
@@ -55,7 +55,7 @@ For each non-WKT, non-map-entry message type:
 | Field name               | `if (utf8) writeNameRaw(NAME_X_BYTES); else writeNameRaw(NAME_X);` — JIT-specialized branch |
 | Repeated                 | `msg.getFooList()`, check isEmpty, iterate                                                  |
 | Map (String key)         | `msg.getFooMap()`, iterate, `entry.getKey()` directly (no `toString()`)                     |
-| Map (non-String key)     | `msg.getFooMap()`, iterate, `entry.getKey().toString()`                                     |
+| Map (non-String key)     | `writeString(primitive)` or unsigned helper; no numeric String allocation                                     |
 | Oneof                    | `switch (msg.getFooCase())` with per-case typed accessor                                    |
 | Nested message (non-WKT) | `FooJsonEncoder.INSTANCE.writeFields(jw, nested, writer)` — direct call, bypasses registry  |
 | Nested message (WKT)     | `WellKnownTypes.write(jsonWriter, nested, writer)`                                          |
@@ -71,6 +71,10 @@ For each non-WKT, non-map-entry message type:
 - `protoToEncoderClass` mapping pre-computed for all messages in `filesToGenerate` so generated encoders can reference each other directly via `INSTANCE.writeFields(jw, msg, writer)` (bypasses runtime registry)
 
 ## Important Edge Cases
+
+- **Custom `json_name`** — `SourceLiterals` escapes JSON names for encoder constants and Java literals for both encoder constants and decoder switch labels, including quotes, backslashes, control characters, and Unicode.
+- **Deprecated fields/types** — included in generated codecs. Both codec classes suppress Java deprecation warnings so generated calls compile with `-Werror`; protobuf deprecation does not change JSON semantics.
+- **Unsigned map keys** — uint32/fixed32 use `Integer.toUnsignedLong`; uint64/fixed64 use `WellKnownTypes.writeUnsignedLongString`. Keys always remain quoted JSON strings. Long-key writes share `FieldWriter.writeLongMapKey`, which preserves key spelling under BrowserCompatible and WriteClassName; boolean keys use constant strings.
 
 - **`google.protobuf.Empty`** is NOT in the WKT set — it serializes as a regular empty message `{}`
 - **`DynamicMessage`** cannot use generated encoders (would fail cast) — guarded in `ProtobufMessageWriter`
@@ -90,12 +94,15 @@ For each non-WKT, non-map-entry message type:
 
 ## Build
 
+After changing a generator, use `mvn clean verify`: incremental protobuf generation can skip unchanged `.proto` files even when the plugin implementation changed.
+
 - Build-time deps: `protobuf-java` (CodeGeneratorRequest/descriptor APIs), `buff-json-schema` (reused to bake JSON Schema resources), and `protovalidate` (so baked schemas carry buf.validate constraints). These are **code-generation-time only** — they never become runtime dependencies of the generated code.
 - No shading needed — the ascopes `jvm-maven` plugin resolves the plugin's transitive deps onto the code-gen classpath automatically (verified: `buff-json-schema` + `protovalidate` load during `generate`).
 - Built **after** `buff-json-schema` in the reactor (it now depends on it). Still built before the consumer modules (tests/benchmarks/conformance).
 
 ## Dependencies
 
+- `com.alibaba.fastjson2:fastjson2` — JSON name escaping at generation time (already transitively used by schema baking)
 - `com.google.protobuf:protobuf-java` — CodeGeneratorRequest, FileDescriptor, FieldDescriptor, ExtensionRegistry
 - `io.github.suboptimal-solutions:buff-json-schema` — `ProtobufSchema.generateJson(...)` for baking schema resources (build-time)
 - `build.buf:protovalidate` — buf.validate extensions registered into the parse `ExtensionRegistry` so constraints reach `ProtobufSchema` (build-time)

@@ -85,7 +85,7 @@ fi
 
 # Always clean-rebuild to pick up code changes and regenerate JMH BenchmarkList.
 echo "Building benchmarks..."
-mvn package -DskipTests -q
+mvn clean package -DskipTests -q
 
 mkdir -p "$REPORTS_DIR"
 

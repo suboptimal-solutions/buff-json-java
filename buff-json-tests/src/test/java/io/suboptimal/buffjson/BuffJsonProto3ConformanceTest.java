@@ -13,6 +13,7 @@ import com.google.protobuf_test_messages.proto3.TestMessagesProto3.TestAllTypesP
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import io.suboptimal.buffjson.internal.typed.TypedMessageSchema;
 import io.suboptimal.buffjson.proto.*;
 
 class BuffJsonProto3ConformanceTest {
@@ -87,6 +88,14 @@ class BuffJsonProto3ConformanceTest {
 					.setOptionalInt64(Long.MAX_VALUE).setOptionalUint32(-1) // unsigned max = 4294967295
 					.setOptionalUint64(-1L) // unsigned max
 					.setOptionalSint32(Integer.MIN_VALUE).setOptionalSint64(Long.MIN_VALUE).build());
+		}
+
+		@Test
+		void unsigned64DigitBoundary() throws Exception {
+			long last19Digit = Long.parseUnsignedLong("9999999999999999999");
+			long first20Digit = Long.parseUnsignedLong("10000000000000000000");
+			assertMatchesReference(TestAllScalars.newBuilder().setOptionalUint64(last19Digit).build());
+			assertMatchesReference(TestAllScalars.newBuilder().setOptionalUint64(first20Digit).build());
 		}
 
 		@Test
@@ -335,6 +344,15 @@ class BuffJsonProto3ConformanceTest {
 					.putSint32ToString(-1, "negative").putSint64ToString(-100L, "neg hundred")
 					.putFixed32ToString(10, "fixed").putFixed64ToString(20L, "fixed64")
 					.putSfixed32ToString(-10, "sfixed").putSfixed64ToString(-20L, "sfixed64").build());
+		}
+
+		@Test
+		void unsignedKeyBoundaries() throws Exception {
+			var message = TestMaps.newBuilder().putUint32ToString(-1, "uint32 max")
+					.putFixed32ToString(-1, "fixed32 max").putUint64ToString(-1L, "uint64 max")
+					.putFixed64ToString(-1L, "fixed64 max").build();
+			assertMatchesReference(message);
+			assertMatchesReference(DynamicMessage.parseFrom(message.getDescriptorForType(), message.toByteString()));
 		}
 
 		@Test
@@ -885,6 +903,56 @@ class BuffJsonProto3ConformanceTest {
 		@Test
 		void emptyMessage() throws Exception {
 			assertMatchesReference(TestEmpty.newBuilder().setValue(Empty.getDefaultInstance()).build());
+		}
+	}
+
+	// =========================================================================
+	// Deprecated fields
+	// =========================================================================
+	/**
+	 * {@code [deprecated = true]} is a Java-API annotation concern, not a wire/JSON
+	 * one: {@code JsonFormat.printer()} prints deprecated fields, so all three
+	 * paths must too. Also a compile-time guard — a generator that emits
+	 * {@code NAME_<FIELD>} constants for a different set of fields than it writes
+	 * produces an encoder that does not compile.
+	 */
+	@Nested
+	@SuppressWarnings("deprecation")
+	class DeprecatedFields {
+
+		@Test
+		void allDeprecatedFieldsSet() throws Exception {
+			var message = TestDeprecatedFields.newBuilder().setNotDeprecated(1).setDeprecatedInt32(42)
+					.setDeprecatedInt64(123456789012345L).setDeprecatedString("hello")
+					.setDeprecatedBytes(ByteString.copyFromUtf8("binary data")).setDeprecatedOptionalInt32(0)
+					.addDeprecatedRepeatedInt32(1).addDeprecatedRepeatedInt32(2).addDeprecatedRepeatedString("a")
+					.putDeprecatedMap("k", 7)
+					.setDeprecatedMessage(NestedMessage.newBuilder().setValue(9).setName("nested").build())
+					.setDeprecatedEnum(TestEnum.TEST_ENUM_BAR)
+					.setDeprecatedTimestamp(Timestamp.newBuilder().setSeconds(1234567890).setNanos(123000000).build())
+					.setDeprecatedOneofInt32(5).build();
+			assertNotNull(TypedMessageSchema.forMessage(message.getDescriptorForType(), message.getClass()),
+					"Deprecated getters must remain on the typed path");
+			assertMatchesReference(message);
+
+			// Guard against the whole group being vacuously equal by omission: the
+			// deprecated fields must actually be present in the output.
+			String json = CODEGEN_ENCODER.encode(message);
+			for (String name : new String[]{"deprecatedInt32", "deprecatedInt64", "deprecatedString", "deprecatedBytes",
+					"deprecatedOptionalInt32", "deprecatedRepeatedInt32", "deprecatedRepeatedString", "deprecatedMap",
+					"deprecatedMessage", "deprecatedEnum", "deprecatedTimestamp", "deprecatedOneofInt32"}) {
+				assertTrue(json.contains("\"" + name + "\":"), "missing deprecated field " + name + " in " + json);
+			}
+		}
+
+		@Test
+		void deprecatedDefaultsOmitted() throws Exception {
+			assertMatchesReference(TestDeprecatedFields.getDefaultInstance());
+		}
+
+		@Test
+		void deprecatedOneofNonDeprecatedMember() throws Exception {
+			assertMatchesReference(TestDeprecatedFields.newBuilder().setDeprecatedOneofString("set").build());
 		}
 	}
 

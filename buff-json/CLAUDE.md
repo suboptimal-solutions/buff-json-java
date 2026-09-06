@@ -106,8 +106,13 @@ JSON.parseObject(json, MyMessage.class);  // uses the reader's settings
 
 ## Proto3 JSON Spec: Key Gotchas
 
+- **Cached names and descriptors**: `FieldName.of` JSON-escapes custom names once for UTF-16 and UTF-8. Map key/value descriptors and typed message WKT checks are cached in schemas.
+- **Deprecated fields**: retain normal presence and encoding behavior on all three paths.
+- **Numeric map keys**: written directly as quoted primitives, with unsigned conversion for uint32/fixed32 and uint64/fixed64. Boolean keys use constant strings. Long keys fall back to String formatting under BrowserCompatible or WriteClassName to prevent fastjson2 from changing their spelling.
+- **Compiled WKTs**: Timestamp, Duration, Struct, Value, and ListValue use concrete getters; DynamicMessage retains descriptor-based fallback and the same range checks.
+
 - **uint32/fixed32**: `Integer.toUnsignedLong()` for unsigned representation
-- **uint64/fixed64**: `Long.toUnsignedString()` for unsigned quoted strings. On **decode**, both the quoted form and an *unquoted* JSON number up to `2^64-1` are accepted: `FieldReader.readUnsignedLong` parses the quoted form with `Long.parseUnsignedLong`, and the unquoted form via `readBigInteger` + `[0, 2^64)` range check (a plain `readInt64Value()` overflows past `Long.MAX_VALUE`), taking the low 64 bits.
+- **uint64/fixed64**: `WellKnownTypes.writeUnsignedLongString()` writes quoted unsigned values without an intermediate String; large values use one exact-size 19/20-byte buffer. On **decode**, both the quoted form and an *unquoted* JSON number up to `2^64-1` are accepted: `FieldReader.readUnsignedLong` parses the quoted form with `Long.parseUnsignedLong`, and the unquoted form via `readBigInteger` + `[0, 2^64)` range check (a plain `readInt64Value()` overflows past `Long.MAX_VALUE`), taking the low 64 bits.
 - **int64 and all 64-bit types**: Must be quoted strings in JSON
 - **Enum unknown numbers**: proto3 open enums preserve an unrecognized numeric value rather than dropping it to 0. The reflection decode path uses `EnumDescriptor.findValueByNumberCreatingIfUnknown` (codegen stores via `setXxxValue(int)`), so the number survives a re-serialization to the wire — matching `JsonFormat`.
 - **NaN/Infinity**: fastjson2 writes `null` — we intercept and write quoted strings

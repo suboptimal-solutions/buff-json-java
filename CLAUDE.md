@@ -112,7 +112,7 @@ JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
 
 ## Allocation Regression Check
 
-`./allocation-check.sh` runs JMH `-prof gc` on a representative subset of benchmarks (SimpleMessage codegen+runtime × UTF-16+UTF-8, ComplexMessage codegen+runtime, DoubleHeavy codegen × UTF-16+UTF-8) and asserts `gc.alloc.rate.norm` (bytes per `@Benchmark` invocation) stays within per-benchmark budgets defined in the script. Total runtime ~1 minute. `--quick` flag for local iteration. Wired into CI as a separate `allocation-check` job in `.github/workflows/ci.yml`. Catches regressions like a missed zero-alloc path, a forgotten try-with-resources, or a new String/byte[] allocation per call.
+`./allocation-check.sh` runs JMH `-prof gc` on a representative subset of benchmarks (SimpleMessage codegen+runtime × UTF-16+UTF-8, ComplexMessage codegen+runtime, DoubleHeavy codegen × UTF-16+UTF-8, typed Struct/Timestamp × UTF-16+UTF-8, and map-heavy codegen+runtime) and asserts `gc.alloc.rate.norm` (bytes per `@Benchmark` invocation) stays within per-benchmark budgets defined in the script. Total runtime ~2 minutes. `--quick` flag for local iteration. Wired into CI as a separate `allocation-check` job in `.github/workflows/ci.yml`. Catches regressions like a missed zero-alloc path, a forgotten try-with-resources, or a new String/byte[] allocation per call.
 
 ## Build Notes
 

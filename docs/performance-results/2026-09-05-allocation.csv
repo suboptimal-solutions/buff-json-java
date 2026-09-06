@@ -1,0 +1,15 @@
+benchmark,bytes_per_op,budget_bytes_per_op
+io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonCompiled,1483.7288867311065,2300
+io.suboptimal.buffjson.benchmarks.ComplexMessageBenchmark.buffJsonRuntime,1291.7290202525248,2500
+io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf16,1773.2836602194802,2200
+io.suboptimal.buffjson.benchmarks.DoubleHeavyBenchmark.compiledUtf8,1749.283661703668,2100
+io.suboptimal.buffjson.benchmarks.EncodePathsBenchmark.structTypedUtf8,711.6902343329957,900
+io.suboptimal.buffjson.benchmarks.EncodePathsBenchmark.timestampTypedUtf8,439.9691807059019,520
+io.suboptimal.buffjson.benchmarks.RepeatedAndMapBenchmark.mapCompiled,5025.211076782879,6200
+io.suboptimal.buffjson.benchmarks.RepeatedAndMapBenchmark.mapRuntime,4805.49474038729,6000
+io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf16,295.5392393265975,380
+io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.compiledUtf8,271.539219108242,350
+io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf16,295.5392850337711,400
+io.suboptimal.buffjson.benchmarks.SimpleMessageBenchmark.runtimeUtf8,271.5392464597608,380
+io.suboptimal.buffjson.benchmarks.WktBenchmark.structRuntime,735.6897812663278,1050
+io.suboptimal.buffjson.benchmarks.WktBenchmark.timestampRuntime,463.96922768788244,550
