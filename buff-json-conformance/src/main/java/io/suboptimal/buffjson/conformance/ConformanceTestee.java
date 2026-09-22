@@ -87,7 +87,7 @@ public final class ConformanceTestee {
 	 * <ul>
 	 * <li>{@code codegen} — generated per-message encoders/decoders;</li>
 	 * <li>{@code runtime} — generated codecs off: typed-accessor encode +
-	 * reflection decode;</li>
+	 * typed-accessor decode;</li>
 	 * <li>{@code reflection} — generated + typed off: pure-reflection encode +
 	 * reflection decode.</li>
 	 * </ul>
@@ -116,9 +116,12 @@ public final class ConformanceTestee {
 
 	private static BuffJsonDecoder configureDecoder() {
 		BuffJsonDecoder decoder = BuffJson.decoder().setTypeRegistry(TYPE_REGISTRY);
-		// The decoder has no typed-accessor tier — both runtime and reflection use the
-		// reflection decode path; only codegen differs.
-		return "codegen".equals(PATH_MODE) ? decoder : decoder.setGeneratedDecoders(false);
+		return switch (PATH_MODE) {
+			case "codegen" -> decoder;
+			case "runtime" -> decoder.setGeneratedDecoders(false);
+			case "reflection" -> decoder.setGeneratedDecoders(false).setTypedAccessors(false);
+			default -> throw new IllegalArgumentException("Unknown BUFFJSON_PATH: " + PATH_MODE);
+		};
 	}
 
 	public static void main(String[] args) throws IOException {

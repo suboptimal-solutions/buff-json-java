@@ -57,6 +57,15 @@ public final class FieldReader {
 		};
 	}
 
+	static Object readValue(JSONReader reader, Message.Builder parent, FieldDescriptor fd,
+			ProtobufMessageReader msgReader) {
+		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+				&& !WellKnownTypes.isWellKnownType(fd.getMessageType())) {
+			return msgReader.readMessage(reader, parent.newBuilderForField(fd));
+		}
+		return readValue(reader, fd, msgReader);
+	}
+
 	/**
 	 * Reads a base64 string into a {@link ByteString}, normalizing decode errors to
 	 * {@link JSONException}. Public so generated decoders (in other packages) can
@@ -317,7 +326,7 @@ public final class FieldReader {
 			if (reader.nextIfNull()) {
 				continue;
 			}
-			Object value = readValue(reader, fd, msgReader);
+			Object value = readValue(reader, builder, fd, msgReader);
 			builder.addRepeatedField(fd, value);
 		}
 	}
@@ -340,21 +349,21 @@ public final class FieldReader {
 
 			Object key = parseMapKey(reader, keyStr, keyFd);
 
+			Message.Builder entryBuilder = builder.newBuilderForField(fd);
 			Object value;
 			if (reader.nextIfNull()) {
 				value = getDefaultMapValue(valueFd);
 			} else {
-				value = readValue(reader, valueFd, msgReader);
+				value = readValue(reader, entryBuilder, valueFd, msgReader);
 			}
 
-			Message.Builder entryBuilder = builder.newBuilderForField(fd);
 			entryBuilder.setField(keyFd, key);
 			entryBuilder.setField(valueFd, value);
 			builder.addRepeatedField(fd, entryBuilder.build());
 		}
 	}
 
-	private static Object parseMapKey(JSONReader reader, String keyStr, FieldDescriptor keyFd) {
+	static Object parseMapKey(JSONReader reader, String keyStr, FieldDescriptor keyFd) {
 		return switch (keyFd.getJavaType()) {
 			case STRING -> keyStr;
 			case INT -> {
@@ -434,7 +443,7 @@ public final class FieldReader {
 		throw new JSONException(reader.info("Invalid bool map key"));
 	}
 
-	private static Object getDefaultMapValue(FieldDescriptor valueFd) {
+	static Object getDefaultMapValue(FieldDescriptor valueFd) {
 		return switch (valueFd.getJavaType()) {
 			case INT -> 0;
 			case LONG -> 0L;

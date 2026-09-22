@@ -56,6 +56,8 @@ class BuffJsonCrossPathFuzzTest {
 			.setTypedAccessors(false);
 	private static final BuffJsonDecoder CODEGEN_DECODER = BuffJson.decoder().setGeneratedDecoders(true);
 	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().setGeneratedDecoders(false);
+	private static final BuffJsonDecoder REFLECTION_DECODER = BuffJson.decoder().setGeneratedDecoders(false)
+			.setTypedAccessors(false);
 
 	@Test
 	void encodePathsAgreeAndAreParseable() throws Exception {
@@ -96,6 +98,10 @@ class BuffJsonCrossPathFuzzTest {
 					"codegen decode @" + i + " " + json);
 			assertEquals(msg, RUNTIME_DECODER.decode(json, TestAllTypesProto3.class),
 					"runtime decode @" + i + " " + json);
+			byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+			assertEquals(msg, RUNTIME_DECODER.decode(bytes, TestAllTypesProto3.class), "runtime UTF-8 @" + i);
+			assertEquals(msg, REFLECTION_DECODER.decode(json, TestAllTypesProto3.class), "reflection decode @" + i);
+			assertEquals(msg, REFLECTION_DECODER.decode(bytes, TestAllTypesProto3.class), "reflection UTF-8 @" + i);
 		}
 	}
 

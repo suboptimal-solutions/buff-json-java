@@ -32,10 +32,11 @@ import io.suboptimal.buffjson.internal.ProtobufReaderModule;
  * underlying schema caches are concurrent.
  *
  * <p>
- * Mutating setters ({@link #setTypeRegistry}, {@link #setGeneratedDecoders})
- * are <b>not</b> safe to call concurrently with {@code decode} — a setter
- * racing with an in-flight decode can result in the cached reader holding a
- * stale config. Configure the decoder once at startup, then share it.
+ * Mutating setters ({@link #setTypeRegistry}, {@link #setGeneratedDecoders},
+ * {@link #setTypedAccessors}) are <b>not</b> safe to call concurrently with
+ * {@code decode} — a setter racing with an in-flight decode can result in the
+ * cached reader holding a stale config. Configure the decoder once at startup,
+ * then share it.
  *
  * @see BuffJson#decoder()
  */
@@ -43,6 +44,7 @@ public final class BuffJsonDecoder {
 
 	private TypeRegistry typeRegistry;
 	private boolean useGeneratedDecoders = true;
+	private boolean useTypedAccessors = true;
 	private volatile ProtobufMessageReader cachedReader;
 
 	BuffJsonDecoder() {
@@ -66,6 +68,20 @@ public final class BuffJsonDecoder {
 
 	public boolean getGeneratedDecoders() {
 		return useGeneratedDecoders;
+	}
+
+	/**
+	 * Enables cached typed builder accessors for runtime decoding (default: true).
+	 * Disable together with generated decoders to exercise the descriptor fallback.
+	 */
+	public BuffJsonDecoder setTypedAccessors(boolean enabled) {
+		this.useTypedAccessors = enabled;
+		this.cachedReader = null;
+		return this;
+	}
+
+	public boolean getTypedAccessors() {
+		return useTypedAccessors;
 	}
 
 	/**
@@ -156,7 +172,7 @@ public final class BuffJsonDecoder {
 	private ProtobufMessageReader messageReader() {
 		var r = cachedReader;
 		if (r == null) {
-			r = new ProtobufMessageReader(typeRegistry, useGeneratedDecoders);
+			r = new ProtobufMessageReader(typeRegistry, useGeneratedDecoders, useTypedAccessors);
 			cachedReader = r;
 		}
 		return r;

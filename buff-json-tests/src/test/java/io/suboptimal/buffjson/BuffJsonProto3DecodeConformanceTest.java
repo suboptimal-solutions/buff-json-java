@@ -18,6 +18,8 @@ class BuffJsonProto3DecodeConformanceTest {
 	private static final JsonFormat.Printer PRINTER = JsonFormat.printer().omittingInsignificantWhitespace();
 	private static final BuffJsonDecoder CODEGEN_DECODER = BuffJson.decoder().setGeneratedDecoders(true);
 	private static final BuffJsonDecoder RUNTIME_DECODER = BuffJson.decoder().setGeneratedDecoders(false);
+	private static final BuffJsonDecoder REFLECTION_DECODER = BuffJson.decoder().setGeneratedDecoders(false)
+			.setTypedAccessors(false);
 
 	/**
 	 * Round-trip test: serialize with JsonFormat.printer(), then deserialize with
@@ -36,6 +38,7 @@ class BuffJsonProto3DecodeConformanceTest {
 		// Test runtime path
 		T runtime = RUNTIME_DECODER.decode(json, clazz);
 		assertEquals(original, runtime, "Runtime mismatch for " + typeName + " json=" + json);
+		assertEquals(original, REFLECTION_DECODER.decode(json, clazz), "Reflection mismatch for " + typeName);
 	}
 
 	/**
@@ -46,6 +49,8 @@ class BuffJsonProto3DecodeConformanceTest {
 	private void assertBothPathsReject(String json, Class<? extends Message> clazz) {
 		assertThrows(JSONException.class, () -> CODEGEN_DECODER.decode(json, clazz), "codegen should reject: " + json);
 		assertThrows(JSONException.class, () -> RUNTIME_DECODER.decode(json, clazz), "runtime should reject: " + json);
+		assertThrows(JSONException.class, () -> REFLECTION_DECODER.decode(json, clazz),
+				"reflection should reject: " + json);
 	}
 
 	// =========================================================================

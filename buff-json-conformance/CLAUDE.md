@@ -69,7 +69,7 @@ CONF_TEST_PATH=run/conformance_test_runner BUFFJSON_PATH=reflection ./buff-json-
 |    value     |       encode path        |       decode path        |
 |--------------|--------------------------|--------------------------|
 | `codegen`    | generated `*JsonEncoder` | generated `*JsonDecoder` |
-| `runtime`    | typed-accessor           | reflection               |
+| `runtime`    | typed-accessor           | typed builder setters    |
 | `reflection` | pure reflection          | reflection               |
 
 `ENFORCE_CONFORMANCE=1` makes `test-conformance.sh` propagate the runner's exit code (fail on

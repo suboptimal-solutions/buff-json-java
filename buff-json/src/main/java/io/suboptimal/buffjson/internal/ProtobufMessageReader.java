@@ -19,8 +19,8 @@ import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;
  *
  * <p>
  * Holds settings as instance fields ({@code typeRegistry},
- * {@code useGenerated}) and passes {@code this} through the call chain — no
- * ThreadLocals.
+ * {@code useGenerated}, {@code useTyped}) and passes {@code this} through the
+ * call chain — no ThreadLocals.
  *
  * <p>
  * For each message:
@@ -31,8 +31,10 @@ import io.suboptimal.buffjson.BuffJsonGeneratedDecoder;
  * generated decoder (injected via protoc insertion points)
  * <li>Caches the decoder by Descriptor for the descriptor-only nested decode
  * path ({@link GeneratedDecoderRegistry})
- * <li>Falls back to reflection-based field-by-field parsing using
- * {@link MessageSchema} and {@link FieldReader}
+ * <li>Uses cached typed builder setters when a concrete generated message is
+ * available ({@link TypedMessageReaderSchema})
+ * <li>Falls back to descriptor-based parsing using {@link MessageSchema} and
+ * {@link FieldReader} for dynamic messages or unsupported fields
  * </ol>
  */
 public final class ProtobufMessageReader implements ObjectReader<Message> {
@@ -43,10 +45,16 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 
 	private final TypeRegistry typeRegistry;
 	private final boolean useGenerated;
+	private final boolean useTyped;
 
 	public ProtobufMessageReader(TypeRegistry typeRegistry, boolean useGenerated) {
+		this(typeRegistry, useGenerated, true);
+	}
+
+	public ProtobufMessageReader(TypeRegistry typeRegistry, boolean useGenerated, boolean useTyped) {
 		this.typeRegistry = typeRegistry;
 		this.useGenerated = useGenerated;
+		this.useTyped = useTyped;
 	}
 
 	public TypeRegistry typeRegistry() {
@@ -93,8 +101,8 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 
 	/**
 	 * Reads a message using the generated path if available, otherwise the runtime
-	 * reflection-based path with the provided typed default instance. Used for
-	 * top-level decoding where the concrete Message class is known.
+	 * path with the provided typed default instance. Used for top-level decoding
+	 * where the concrete Message class is known.
 	 */
 	@SuppressWarnings("unchecked")
 	public Message readMessage(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
@@ -111,14 +119,46 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	}
 
 	/**
-	 * Runtime reflection-based message reading. Always uses the descriptor/builder
-	 * path.
+	 * Runtime message reading using typed setters when available, with a
+	 * descriptor/builder fallback.
 	 */
 	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
 		Message.Builder builder = defaultInstance.newBuilderForType();
 		reader.nextIfObjectStart();
-		readFieldsInto(reader, builder, descriptor);
+		readRuntimeFields(reader, builder, descriptor);
 		return builder.build();
+	}
+
+	/**
+	 * Reads directly into the parent's concrete child builder, without a dynamic
+	 * copy.
+	 */
+	Message readMessage(JSONReader reader, Message.Builder builder) {
+		Message defaultInstance = builder.getDefaultInstanceForType();
+		if (useGenerated) {
+			// Preserve discovery and descriptor-cache dispatch for mixed codec graphs.
+			if (defaultInstance instanceof BuffJsonCodecHolder) {
+				return readMessage(reader, builder.getDescriptorForType(), defaultInstance);
+			}
+			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(builder.getDescriptorForType());
+			if (decoder != null) {
+				return decoder.readMessage(reader, this);
+			}
+		}
+		reader.nextIfObjectStart();
+		readRuntimeFields(reader, builder, builder.getDescriptorForType());
+		return builder.build();
+	}
+
+	private void readRuntimeFields(JSONReader reader, Message.Builder builder, Descriptor descriptor) {
+		if (useTyped && !(builder instanceof DynamicMessage.Builder)) {
+			var schema = TypedMessageReaderSchema.forMessage(builder.getDefaultInstanceForType());
+			if (schema != null) {
+				schema.readFields(reader, builder, this);
+				return;
+			}
+		}
+		readFieldsInto(reader, builder, descriptor);
 	}
 
 	/**
@@ -157,17 +197,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 			FieldDescriptor fd = fieldInfo.descriptor();
 
 			if (reader.nextIfNull()) {
-				// For google.protobuf.Value, null means NullValue, not "absent"
-				if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
-						&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
-					builder.setField(fd, com.google.protobuf.Value.newBuilder()
-							.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build());
-				} else if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
-						&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
-					// A null for a google.protobuf.NullValue field means NULL_VALUE (and,
-					// in a oneof, marks the case as set).
-					builder.setField(fd, fd.getEnumType().findValueByNumber(0));
-				}
+				readNullField(builder, fd);
 				continue;
 			}
 			if (fieldInfo.isMapField()) {
@@ -175,9 +205,23 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 			} else if (fieldInfo.isRepeated()) {
 				FieldReader.readRepeated(reader, builder, fd, this);
 			} else {
-				Object value = FieldReader.readValue(reader, fd, this);
+				Object value = FieldReader.readValue(reader, builder, fd, this);
 				builder.setField(fd, value);
 			}
+		}
+	}
+
+	static void readNullField(Message.Builder builder, FieldDescriptor fd) {
+		if (fd.isRepeated()) {
+			return;
+		}
+		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
+			builder.setField(fd, com.google.protobuf.Value.newBuilder()
+					.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build());
+		} else if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
+				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
+			builder.setField(fd, fd.getEnumType().findValueByNumber(0));
 		}
 	}
 

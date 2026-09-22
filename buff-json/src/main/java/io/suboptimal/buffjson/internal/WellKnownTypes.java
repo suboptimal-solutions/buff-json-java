@@ -1,6 +1,8 @@
 package io.suboptimal.buffjson.internal;
 
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -686,6 +688,35 @@ public final class WellKnownTypes {
 	}
 
 	static Timestamp parseTimestamp(String rfc3339) {
+		// JsonFormat's canonical UTC form. Keep Instant.parse for offsets, unusual
+		// precisions, leap seconds, and invalid input so its validation is preserved.
+		int length = rfc3339.length();
+		if ((length == 20 || length == 24 || length == 27 || length == 30) && rfc3339.charAt(4) == '-'
+				&& rfc3339.charAt(7) == '-' && rfc3339.charAt(10) == 'T' && rfc3339.charAt(13) == ':'
+				&& rfc3339.charAt(16) == ':' && rfc3339.charAt(length - 1) == 'Z'
+				&& (length == 20 || rfc3339.charAt(19) == '.')) {
+			int year = timestampDigits(rfc3339, 0, 4);
+			int month = timestampDigits(rfc3339, 5, 7);
+			int day = timestampDigits(rfc3339, 8, 10);
+			int hour = timestampDigits(rfc3339, 11, 13);
+			int minute = timestampDigits(rfc3339, 14, 16);
+			int second = timestampDigits(rfc3339, 17, 19);
+			int nanos = length == 20 ? 0 : timestampDigits(rfc3339, 20, length - 1);
+			if (year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour >= 0 && hour <= 23
+					&& minute >= 0 && minute <= 59 && second >= 0 && second <= 59 && nanos >= 0) {
+				try {
+					long days = LocalDate.of(year, month, day).toEpochDay();
+					if (length == 24)
+						nanos *= 1_000_000;
+					else if (length == 27)
+						nanos *= 1_000;
+					return Timestamp.newBuilder().setSeconds(days * 86_400 + hour * 3_600 + minute * 60 + second)
+							.setNanos(nanos).build();
+				} catch (DateTimeException invalidDate) {
+					// Fall through to the original parser and its error contract.
+				}
+			}
+		}
 		Instant instant = Instant.parse(rfc3339);
 		long seconds = instant.getEpochSecond();
 		// proto3 spec: Timestamps outside [0001-01-01, 9999-12-31] are invalid. Reject
@@ -696,6 +727,17 @@ public final class WellKnownTypes {
 					+ TIMESTAMP_SECONDS_MAX + "]: " + seconds);
 		}
 		return Timestamp.newBuilder().setSeconds(seconds).setNanos(instant.getNano()).build();
+	}
+
+	private static int timestampDigits(String value, int from, int to) {
+		int number = 0;
+		for (int i = from; i < to; i++) {
+			int digit = value.charAt(i) - '0';
+			if (digit < 0 || digit > 9)
+				return -1;
+			number = number * 10 + digit;
+		}
+		return number;
 	}
 
 	static Duration parseDuration(String s) {

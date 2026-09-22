@@ -320,26 +320,7 @@ public final class TypedFieldAccessorFactory {
 	}
 
 	static String toCamelCase(String name) {
-		StringBuilder sb = new StringBuilder();
-		boolean capitalizeNext = true;
-		for (int i = 0; i < name.length(); i++) {
-			char c = name.charAt(i);
-			if (c == '_') {
-				capitalizeNext = true;
-			} else if (c >= '0' && c <= '9') {
-				// Mirror protobuf's UnderscoresToCamelCase: a digit forces the next
-				// letter to be capitalized (field0name5 -> Field0Name5), so the resolved
-				// getter name matches protobuf-java's generated accessor. Without this the
-				// getter lookup fails and the whole typed schema silently falls back to
-				// the reflection path.
-				sb.append(c);
-				capitalizeNext = true;
-			} else {
-				sb.append(capitalizeNext ? Character.toUpperCase(c) : c);
-				capitalizeNext = false;
-			}
-		}
-		return sb.toString();
+		return io.suboptimal.buffjson.internal.ProtobufJavaNames.accessorSuffix(name);
 	}
 
 	static FieldName fieldName(String jsonName) {

@@ -85,7 +85,7 @@ Add the plugin to your protobuf-maven-plugin configuration:
 </plugin>
 ```
 
-No code changes needed — the plugin uses protoc insertion points to inject codec discovery directly into the generated message classes. If the plugin is not configured, the runtime reflection path is used.
+No code changes needed — the plugin uses protoc insertion points to inject codec discovery directly into the generated message classes. If the plugin is not configured, cached typed accessors are used, with a descriptor-based fallback for unsupported messages or fields.
 
 The serialization output matches `JsonFormat.printer().omittingInsignificantWhitespace().print()` exactly.
 
@@ -104,6 +104,20 @@ BuffJsonDecoder decoder = BuffJson.decoder()
         .build());
 MyMessage msg = decoder.decode(json, MyMessage.class);
 ```
+
+Runtime decoding caches public builder setters (`setXxx`, `addXxx`, `putXxx`) using MethodHandles. It parses nested messages into concrete builders and inserts map values directly, avoiding temporary dynamic messages and map-entry messages. Canonical timestamps use a shared fast parser that also benefits generated decoders. Unsupported fields retain descriptor-based parsing.
+
+```java
+// Runtime typed setters (also the default when no generated decoder is available)
+BuffJsonDecoder runtime = BuffJson.decoder().setGeneratedDecoders(false);
+
+// Descriptor fallback, for comparison and diagnostics
+BuffJsonDecoder reflection = BuffJson.decoder()
+    .setGeneratedDecoders(false)
+    .setTypedAccessors(false);
+```
+
+The typed decoder uses no runtime bytecode generation. Native images need reachability metadata for the application's protobuf classes and public builder methods. The [runtime performance analysis](docs/runtime-performance-analysis.md) records the initial native-image experiments and decoder optimization measurements.
 
 ### Mixed pojo + protobuf (fastjson2 registration)
 
