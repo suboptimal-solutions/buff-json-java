@@ -54,8 +54,9 @@ public final class TypedMessageSchema {
 	}
 
 	public void writeFields(JSONWriter jw, Message msg, ProtobufMessageWriter writer) {
+		boolean utf8 = jw.isUTF8();
 		for (var accessor : fields) {
-			accessor.write(jw, msg, writer);
+			accessor.write(jw, msg, writer, utf8);
 		}
 	}
 

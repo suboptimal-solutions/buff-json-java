@@ -6,8 +6,9 @@ import com.alibaba.fastjson2.JSONFactory;
 import com.alibaba.fastjson2.JSONWriter;
 
 /**
- * Pre-encoded field name in both UTF-16 (char[]) and UTF-8 (byte[]) forms.
- * Dispatches to the optimal variant based on the JSONWriter type.
+ * Pre-encoded field name in both UTF-16 (char[]) and UTF-8 (byte[]) forms. The
+ * caller hoists the JSONWriter encoding check once per message and passes the
+ * selected form to {@link #writeTo(JSONWriter, boolean)}.
  */
 public record FieldName(char[] chars, byte[] utf8) {
 
@@ -28,8 +29,8 @@ public record FieldName(char[] chars, byte[] utf8) {
 		}
 	}
 
-	public void writeTo(JSONWriter jw) {
-		if (jw.isUTF8())
+	public void writeTo(JSONWriter jw, boolean isUtf8) {
+		if (isUtf8)
 			jw.writeNameRaw(utf8);
 		else
 			jw.writeNameRaw(chars);
