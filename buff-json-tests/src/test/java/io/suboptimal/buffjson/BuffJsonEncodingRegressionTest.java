@@ -10,6 +10,7 @@ import java.util.Map;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONWriter;
 import com.google.protobuf.*;
+import com.google.protobuf_test_messages.proto3.TestMessagesProto3.TestAllTypesProto3;
 import com.google.protobuf.util.JsonFormat;
 
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,20 @@ class BuffJsonEncodingRegressionTest {
 					assertEquals(expected, new String(encoder.encodeToBytes(message), StandardCharsets.UTF_8));
 				}
 			}
+		}
+	}
+
+	@Test
+	void repeatedTimestampAndDurationMatchAcrossAllPaths() throws Exception {
+		var original = TestAllTypesProto3.newBuilder()
+				.addRepeatedTimestamp(Timestamp.newBuilder().setSeconds(-1).setNanos(123456789))
+				.addRepeatedTimestamp(Timestamp.newBuilder().setSeconds(1711627200).setNanos(123000000))
+				.addRepeatedDuration(Duration.newBuilder().setSeconds(-2).setNanos(-123456789))
+				.addRepeatedDuration(Duration.newBuilder().setSeconds(3).setNanos(250000000)).build();
+		String expected = PRINTER.print(original);
+		for (var encoder : encoders()) {
+			assertEquals(expected, encoder.encode(original));
+			assertEquals(expected, new String(encoder.encodeToBytes(original), StandardCharsets.UTF_8));
 		}
 	}
 

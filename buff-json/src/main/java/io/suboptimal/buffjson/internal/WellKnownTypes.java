@@ -50,7 +50,8 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
  * For Timestamp and Duration, {@code writeTimestampDirect()} and
  * {@code writeDurationDirect()} accept primitive seconds/nanos directly,
  * bypassing descriptor lookup and {@code message.getField()} reflection. These
- * are used by generated encoders that know the field type at generation time.
+ * are used by generated encoders and pre-specialized typed runtime accessors
+ * that know the field type before entering the hot write loop.
  *
  * <p>
  * Timestamp formatting uses Howard Hinnant's civil calendar algorithm to

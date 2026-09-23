@@ -172,8 +172,7 @@ public final class TypedFieldAccessorFactory {
 			case MESSAGE -> {
 				var getter = createObjectGetter(messageClass, getterName);
 				var has = createPredicate(messageClass, hasName);
-				boolean wellKnown = WellKnownTypes.isWellKnownType(fd.getMessageType());
-				yield new TypedFieldAccessor.PresenceMessageAccessor(castFunction(getter), has, wellKnown, name);
+				yield createPresenceMessageAccessor(fd, castFunction(getter), has, name);
 			}
 		};
 	}
@@ -199,8 +198,7 @@ public final class TypedFieldAccessorFactory {
 			case INT -> new TypedFieldAccessor.RepeatedIntAccessor(listGetter, isUnsigned32(fd), name);
 			case LONG -> new TypedFieldAccessor.RepeatedLongAccessor(listGetter, isUnsigned64(fd), name);
 			case STRING -> new TypedFieldAccessor.RepeatedStringAccessor(listGetter, name);
-			case MESSAGE -> new TypedFieldAccessor.RepeatedMessageAccessor(listGetter,
-					WellKnownTypes.isWellKnownType(fd.getMessageType()), name);
+			case MESSAGE -> createRepeatedMessageAccessor(fd, listGetter, name);
 			default -> new TypedFieldAccessor.RepeatedAccessor(listGetter, fd, name);
 		};
 	}
@@ -335,6 +333,28 @@ public final class TypedFieldAccessorFactory {
 	private static boolean isUnsigned64(FieldDescriptor fd) {
 		var type = fd.getType();
 		return type == FieldDescriptor.Type.UINT64 || type == FieldDescriptor.Type.FIXED64;
+	}
+
+	private static TypedFieldAccessor createPresenceMessageAccessor(FieldDescriptor fd,
+			Function<Message, Message> getter, Predicate<Message> has, FieldName name) {
+		String fullName = fd.getMessageType().getFullName();
+		return switch (fullName) {
+			case "google.protobuf.Timestamp" -> new TypedFieldAccessor.PresenceTimestampAccessor(getter, has, name);
+			case "google.protobuf.Duration" -> new TypedFieldAccessor.PresenceDurationAccessor(getter, has, name);
+			default -> new TypedFieldAccessor.PresenceMessageAccessor(getter, has,
+					WellKnownTypes.isWellKnownType(fd.getMessageType()), name);
+		};
+	}
+
+	private static TypedFieldAccessor createRepeatedMessageAccessor(FieldDescriptor fd,
+			Function<Message, List<?>> listGetter, FieldName name) {
+		String fullName = fd.getMessageType().getFullName();
+		return switch (fullName) {
+			case "google.protobuf.Timestamp" -> new TypedFieldAccessor.RepeatedTimestampAccessor(listGetter, name);
+			case "google.protobuf.Duration" -> new TypedFieldAccessor.RepeatedDurationAccessor(listGetter, name);
+			default -> new TypedFieldAccessor.RepeatedMessageAccessor(listGetter,
+					WellKnownTypes.isWellKnownType(fd.getMessageType()), name);
+		};
 	}
 
 	/**
