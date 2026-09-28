@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package io.suboptimal.buffjson.proto;
+
+import "google/protobuf/struct.proto";
+
+option java_package = "io.suboptimal.buffjson.proto";
+option java_outer_classname = "NullElementsProto";
+option java_multiple_files = true;
+
+// JSON null is a value in its own right for google.protobuf.Value and
+// google.protobuf.NullValue, wherever they sit: as an element of a list, as a map
+// value, or as a singular field. Everywhere else it means "default / not present".
+message TestNullElements {
+    repeated google.protobuf.Value values = 1;
+    repeated google.protobuf.NullValue null_values = 2;
+    map<string, google.protobuf.Value> value_map = 3;
+    map<string, google.protobuf.NullValue> null_map = 4;
+    google.protobuf.Value value = 5;
+    google.protobuf.NullValue null_value = 6;
+    repeated string strings = 7;
+    repeated TestNullElements nested = 8;
+    google.protobuf.ListValue list = 9;
+}

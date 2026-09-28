@@ -238,6 +238,25 @@ public final class TypedMessageReaderSchema {
 		if (!fd.isRepeated()) {
 			return scalar;
 		}
+		// A null list element is skipped, except where null is a value of its own
+		// (google.protobuf.Value, google.protobuf.NullValue): there it is NULL_VALUE.
+		Parser nullElement = FieldReader.isValue(fd) ? (r, b, mr) -> {
+			setter.invokeExact(b, (Object) FieldReader.NULL_VALUE_MESSAGE);
+		} : FieldReader.isNullValueEnum(fd) ? (r, b, mr) -> {
+			setter.invokeExact(b, 0);
+		} : null;
+		if (nullElement != null) {
+			return (r, b, mr) -> {
+				r.nextIfArrayStart();
+				while (!r.nextIfArrayEnd()) {
+					if (r.nextIfNull()) {
+						nullElement.read(r, b, mr);
+					} else {
+						scalar.read(r, b, mr);
+					}
+				}
+			};
+		}
 		return (r, b, mr) -> {
 			r.nextIfArrayStart();
 			while (!r.nextIfArrayEnd()) {
@@ -261,9 +280,11 @@ public final class TypedMessageReaderSchema {
 		ObjectParser parser = objectParser(valueFd, valueClass);
 		Object defaultValue = enumValue
 				? 0
-				: valueFd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
-						? ProtobufMessageReader.getDefaultInstance(valueClass)
-						: FieldReader.getDefaultMapValue(valueFd);
+				: FieldReader.isValue(valueFd)
+						? FieldReader.NULL_VALUE_MESSAGE
+						: valueFd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+								? ProtobufMessageReader.getDefaultInstance(valueClass)
+								: FieldReader.getDefaultMapValue(valueFd);
 		return (r, b, mr) -> {
 			r.nextIfObjectStart();
 			while (!r.nextIfObjectEnd()) {

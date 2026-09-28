@@ -36,6 +36,12 @@ public final class FieldReader {
 
 	public static final Base64.Decoder BASE64 = Base64.getDecoder();
 
+	/**
+	 * {@code google.protobuf.Value} holding {@code null_value}: what JSON null is.
+	 */
+	static final Message NULL_VALUE_MESSAGE = com.google.protobuf.Value.newBuilder()
+			.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build();
+
 	private FieldReader() {
 	}
 
@@ -339,14 +345,46 @@ public final class FieldReader {
 	 */
 	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
 			ProtobufMessageReader msgReader) {
+		Object nullElement = nullElement(fd);
 		reader.nextIfArrayStart();
 		while (!reader.nextIfArrayEnd()) {
 			if (reader.nextIfNull()) {
+				if (nullElement != null) {
+					builder.addRepeatedField(fd, nullElement);
+				}
 				continue;
 			}
 			Object value = readValue(reader, builder, fd, msgReader);
 			builder.addRepeatedField(fd, value);
 		}
+	}
+
+	/** Whether {@code fd} is a {@code google.protobuf.Value} message field. */
+	static boolean isValue(FieldDescriptor fd) {
+		return fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName());
+	}
+
+	/** Whether {@code fd} is a {@code google.protobuf.NullValue} enum field. */
+	static boolean isNullValueEnum(FieldDescriptor fd) {
+		return fd.getJavaType() == FieldDescriptor.JavaType.ENUM
+				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName());
+	}
+
+	/**
+	 * What a JSON {@code null} stands for as a list element or a map value of
+	 * {@code fd}'s type: {@code NULL_VALUE} for {@code google.protobuf.Value} and
+	 * {@code google.protobuf.NullValue}, where null is a value in its own right;
+	 * {@code null} (Java) for every other type, where it carries no element.
+	 */
+	static Object nullElement(FieldDescriptor fd) {
+		if (isValue(fd)) {
+			return NULL_VALUE_MESSAGE;
+		}
+		if (isNullValueEnum(fd)) {
+			return fd.getEnumType().findValueByNumber(0);
+		}
+		return null;
 	}
 
 	/**
@@ -471,7 +509,8 @@ public final class FieldReader {
 			case STRING -> "";
 			case BYTE_STRING -> ByteString.EMPTY;
 			case ENUM -> valueFd.getEnumType().findValueByNumber(0);
-			case MESSAGE -> DynamicMessage.getDefaultInstance(valueFd.getMessageType());
+			case MESSAGE ->
+				isValue(valueFd) ? NULL_VALUE_MESSAGE : DynamicMessage.getDefaultInstance(valueFd.getMessageType());
 		};
 	}
 }

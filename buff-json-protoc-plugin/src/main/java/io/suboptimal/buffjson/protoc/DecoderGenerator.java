@@ -270,10 +270,18 @@ final class DecoderGenerator {
 		sb.append(indent).append("    while (!reader.nextIfObjectEnd()) {\n");
 		sb.append(indent).append("        String keyStr = reader.readFieldName();\n");
 		sb.append(indent).append("        if (keyStr == null) break;\n");
-		sb.append(indent).append("        if (reader.nextIfNull()) continue;\n");
 
 		String keyExpr = mapKeyExpr(keyFd);
 		String mapTarget = putter + "(" + keyExpr + ", ";
+
+		// A null map value carries no entry, except where null is a value of its own:
+		// google.protobuf.Value (read below as null_value) and NullValue (NULL_VALUE).
+		if (isNullValueField(valueFd)) {
+			sb.append(indent).append("        if (reader.nextIfNull()) { ").append(putter).append("Value(")
+					.append(keyExpr).append(", 0); continue; }\n");
+		} else if (!isValueField(valueFd)) {
+			sb.append(indent).append("        if (reader.nextIfNull()) continue;\n");
+		}
 
 		if (valueFd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
 			// Enum maps use putXxxValue(key, int) for unrecognized enum support
