@@ -317,6 +317,24 @@ public final class FieldReader {
 	}
 
 	/**
+	 * Consumes the opening brace of a message value, or fails: a message is a JSON
+	 * object, and anything else -- a number, a stray delimiter, {@code null}, or
+	 * the end of input -- is not one.
+	 *
+	 * <p>
+	 * This is what keeps message readers from returning an empty message without
+	 * having consumed any input. In a loop over array elements that is an endless
+	 * loop appending empty messages until the heap is exhausted, reachable with a
+	 * dozen bytes such as {@code {"items":[1]}}. Public so generated decoders (in
+	 * other packages) can call it.
+	 */
+	public static void objectStart(JSONReader reader) {
+		if (!reader.nextIfObjectStart()) {
+			throw new JSONException(reader.info("Expected a JSON object for a message value"));
+		}
+	}
+
+	/**
 	 * Reads a repeated field as a JSON array, adding each element to the builder.
 	 */
 	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd,

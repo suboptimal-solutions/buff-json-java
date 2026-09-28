@@ -368,4 +368,99 @@ class BuffJsonHardeningTest {
 			assertThrows(JSONException.class, () -> RUNTIME_DECODER.decode(json, TestMaps.class));
 		}
 	}
+	// =========================================================================
+	// Message values that are not objects (endless-loop protection)
+	// =========================================================================
+
+	/**
+	 * A repeated field of message type used to loop forever on an element that is
+	 * not a JSON object: the element reader returned an empty message without
+	 * consuming anything, so the array loop appended empty messages until the heap
+	 * was exhausted. A dozen bytes of untrusted input were enough. Every message
+	 * reader must now fail with a {@link JSONException} instead, on all three
+	 * decode paths.
+	 */
+	@Nested
+	class NonObjectMessageValues {
+
+		private final java.util.List<BuffJsonDecoder> decoders = java.util.List.of(CODEGEN_DECODER, RUNTIME_DECODER,
+				BuffJson.decoder().setGeneratedDecoders(false).setTypedAccessors(false));
+
+		private void assertRejected(String json, Class<? extends Message> type) {
+			for (BuffJsonDecoder decoder : decoders) {
+				// preemptive: a regression would spin, not fail; the timeout turns that into a
+				// failure
+				org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(20),
+						() -> assertThrows(JSONException.class, () -> decoder.decode(json, type), json));
+			}
+		}
+
+		/**
+		 * A {@code null} element is skipped by the runtime readers and rejected by
+		 * generated ones; it must terminate.
+		 */
+		@Test
+		void nullElementOfRepeatedMessageFieldTerminates() {
+			for (BuffJsonDecoder decoder : decoders) {
+				org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(20), () -> {
+					try {
+						decoder.decode("{\"repeatedNested\":[null]}", TestNesting.class);
+					} catch (JSONException expected) {
+						// rejecting is fine; spinning is not
+					}
+				});
+			}
+		}
+
+		@Test
+		void nonObjectElementsOfRepeatedMessageFieldsAreRejected() {
+			String[] elements = {"1", "-", "x", ",", ":", "true", "[", "[]", "\"a\"", "1.5", "}", "]"};
+			for (String element : elements) {
+				assertRejected("{\"repeatedNested\":[" + element + "]}", TestNesting.class);
+				assertRejected("{\"repeatedNested\":[{}," + element + "]}", TestNesting.class);
+			}
+		}
+
+		@Test
+		void everyRepeatedMessageKindOfTheOfficialTestMessageIsCovered() {
+			String[] fields = {"repeatedNestedMessage", "repeatedForeignMessage", "repeatedStruct", "repeatedEmpty"};
+			for (String field : fields) {
+				for (String element : new String[]{"1", "x", ",", "true", "[]", ":"}) {
+					assertRejected("{\"" + field + "\":[" + element + "]}",
+							com.google.protobuf_test_messages.proto3.TestMessagesProto3.TestAllTypesProto3.class);
+				}
+			}
+		}
+
+		@Test
+		void truncatedRepeatedMessageArraysAreRejected() {
+			for (String json : new String[]{"{\"repeatedNested\":[", "{\"repeatedNested\":[{}",
+					"{\"repeatedNested\":[{},", "{\"repeatedNested\":[{\"name\":\"a\"",
+					"{\"repeatedNested\":[{\"name\":\"a\"}"}) {
+				assertRejected(json, TestNesting.class);
+			}
+		}
+
+		@Test
+		void nonObjectSingularMessageValuesAreRejectedWithAJsonException() {
+			for (String value : new String[]{"1", "x", "true", "[]", "\"a\"", "1.5"}) {
+				assertRejected("{\"nested\":" + value + "}", TestNesting.class);
+			}
+		}
+
+		@Test
+		void validRepeatedMessagesAndEmptyDocumentsAreUnaffected() {
+			String json = "{\"repeatedNested\":[{\"name\":\"a\"},{},{\"value\":2}]}";
+			TestNesting expected = TestNesting.newBuilder().addRepeatedNested(NestedMessage.newBuilder().setName("a"))
+					.addRepeatedNested(NestedMessage.getDefaultInstance())
+					.addRepeatedNested(NestedMessage.newBuilder().setValue(2)).build();
+			for (BuffJsonDecoder decoder : decoders) {
+				assertEquals(expected, decoder.decode(json, TestNesting.class));
+				assertEquals(TestNesting.getDefaultInstance(), decoder.decode("{}", TestNesting.class));
+				assertEquals(TestNesting.getDefaultInstance(), decoder.decode(new byte[0], TestNesting.class));
+				assertEquals(TestNesting.getDefaultInstance(), decoder.decode("   \n", TestNesting.class));
+				assertEquals(TestNesting.getDefaultInstance(), decoder.decode("  ".getBytes(), TestNesting.class));
+			}
+		}
+	}
 }

@@ -161,6 +161,10 @@ public final class BuffJsonDecoder {
 			throw new JSONException(reader.info("Top-level null is not a valid proto3 JSON message"));
 		}
 		Message defaultInstance = ProtobufMessageReader.getDefaultInstance(messageClass);
+		if (reader.isEnd()) {
+			// empty or whitespace-only document: the lenient default instance, as before
+			return (T) defaultInstance;
+		}
 		Descriptor descriptor = defaultInstance.getDescriptorForType();
 		T result = (T) messageReader().readMessage(reader, descriptor, defaultInstance);
 		if (!reader.isEnd()) {

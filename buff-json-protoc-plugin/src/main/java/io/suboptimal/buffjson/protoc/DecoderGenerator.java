@@ -52,7 +52,7 @@ final class DecoderGenerator {
 				" readMessage(JSONReader reader, io.suboptimal.buffjson.internal.ProtobufMessageReader msgReader) {\n");
 		sb.append("        ").append(messageClassName).append(".Builder builder = ").append(messageClassName)
 				.append(".newBuilder();\n");
-		sb.append("        reader.nextIfObjectStart();\n");
+		sb.append("        io.suboptimal.buffjson.internal.FieldReader.objectStart(reader);\n");
 		sb.append("        while (!reader.nextIfObjectEnd()) {\n");
 
 		List<FieldDescriptor> fields = msgDesc.getFields();

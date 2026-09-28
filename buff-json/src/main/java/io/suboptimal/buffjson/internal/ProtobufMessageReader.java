@@ -124,7 +124,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 */
 	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
 		Message.Builder builder = defaultInstance.newBuilderForType();
-		reader.nextIfObjectStart();
+		FieldReader.objectStart(reader);
 		readRuntimeFields(reader, builder, descriptor);
 		return builder.build();
 	}
@@ -145,7 +145,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 				return decoder.readMessage(reader, this);
 			}
 		}
-		reader.nextIfObjectStart();
+		FieldReader.objectStart(reader);
 		readRuntimeFields(reader, builder, builder.getDescriptorForType());
 		return builder.build();
 	}

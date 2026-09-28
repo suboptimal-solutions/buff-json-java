@@ -803,7 +803,7 @@ public final class WellKnownTypes {
 	private static Struct readStruct(JSONReader reader, int depth) {
 		checkDepth(reader, depth);
 		Struct.Builder builder = Struct.newBuilder();
-		reader.nextIfObjectStart();
+		FieldReader.objectStart(reader);
 		while (!reader.nextIfObjectEnd()) {
 			String key = reader.readFieldName();
 			if (key == null) {
