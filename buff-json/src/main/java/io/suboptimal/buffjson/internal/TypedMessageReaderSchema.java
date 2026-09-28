@@ -3,11 +3,15 @@ package io.suboptimal.buffjson.internal;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.alibaba.fastjson2.JSONReader;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Descriptors.EnumDescriptor;
+import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.GeneratedMessage;
 import com.google.protobuf.Message;
@@ -29,6 +33,7 @@ public final class TypedMessageReaderSchema {
 	};
 
 	private final Map<String, Field> fields;
+	private final NameTable names;
 	private final int typedFieldCount;
 
 	private TypedMessageReaderSchema(Message defaultInstance) {
@@ -45,10 +50,11 @@ public final class TypedMessageReaderSchema {
 			} catch (ReflectiveOperationException | IllegalArgumentException e) {
 				parser = fallback(fd);
 			}
-			Field field = new Field(fd, parser);
+			Field field = new Field(fd, parser, FieldNameMatcher.of(fd.getJsonName()));
 			fields.put(fd.getJsonName(), field);
 			fields.put(fd.getName(), field);
 		}
+		names = new NameTable(fields);
 		typedFieldCount = count;
 	}
 
@@ -63,14 +69,23 @@ public final class TypedMessageReaderSchema {
 
 	void readFields(JSONReader reader, Message.Builder builder, ProtobufMessageReader messageReader) {
 		while (!reader.nextIfObjectEnd()) {
-			String name = reader.readFieldName();
-			if (name == null) {
-				break;
-			}
-			Field field = fields.get(name);
+			// Common spelling first: byte-exact match of "jsonName": consumes the name only
+			// on
+			// a full match. Every other spelling (escapes, whitespace before the colon,
+			// proto-name aliases, unknown members) takes the general route below.
+			Field field = names.find(reader);
 			if (field == null) {
-				reader.skipValue();
-			} else if (reader.nextIfNull()) {
+				String name = reader.readFieldName();
+				if (name == null) {
+					break;
+				}
+				field = fields.get(name);
+				if (field == null) {
+					reader.skipValue();
+					continue;
+				}
+			}
+			if (reader.nextIfNull()) {
 				ProtobufMessageReader.readNullField(builder, field.descriptor());
 			} else {
 				try {
@@ -84,7 +99,78 @@ public final class TypedMessageReaderSchema {
 		}
 	}
 
-	private record Field(FieldDescriptor descriptor, Parser parser) {
+	private record Field(FieldDescriptor descriptor, Parser parser, FieldNameMatcher matcher) {
+	}
+
+	/**
+	 * Open-addressing table from the first four bytes of {@code "jsonName":} (as
+	 * read by {@code JSONReader.getRawInt()}) to the fields whose exact-name
+	 * matchers share that prefix. Only JSON names that resolve to their own field
+	 * through the general name map are entered, so a hit can never disagree with
+	 * the map.
+	 */
+	private static final class NameTable {
+		private final int[] keys;
+		private final Field[][] candidates;
+		private final int shift;
+		private final int mask;
+		private final boolean empty;
+
+		NameTable(Map<String, Field> byName) {
+			Map<Integer, List<Field>> byPrefix = new HashMap<>();
+			for (Map.Entry<String, Field> e : byName.entrySet()) {
+				Field field = e.getValue();
+				if (field.matcher() != null && e.getKey().equals(field.descriptor().getJsonName())) {
+					byPrefix.computeIfAbsent(field.matcher().prefix(), k -> new ArrayList<>()).add(field);
+				}
+			}
+			empty = byPrefix.isEmpty();
+			int size = Integer.highestOneBit(Math.max(4, byPrefix.size() * 2 - 1)) << 1;
+			keys = new int[size];
+			candidates = new Field[size][];
+			mask = size - 1;
+			shift = 32 - Integer.numberOfTrailingZeros(size);
+			for (Map.Entry<Integer, List<Field>> e : byPrefix.entrySet()) {
+				int i = slot(e.getKey());
+				while (keys[i] != 0) {
+					i = (i + 1) & mask;
+				}
+				keys[i] = e.getKey();
+				candidates[i] = e.getValue().toArray(new Field[0]);
+			}
+		}
+
+		private int slot(int prefix) {
+			return (prefix * 0x9E3779B1) >>> shift;
+		}
+
+		/**
+		 * The field whose name is exactly at the reader's position, or null (nothing
+		 * consumed).
+		 */
+		Field find(JSONReader reader) {
+			if (empty) {
+				return null;
+			}
+			int raw = reader.getRawInt();
+			if (raw == 0) {
+				return null;
+			}
+			int i = slot(raw);
+			for (int key = keys[i]; key != 0; key = keys[i]) {
+				if (key == raw) {
+					Field[] group = candidates[i];
+					for (int j = 0; j < group.length; j++) {
+						if (group[j].matcher().match(reader)) {
+							return group[j];
+						}
+					}
+					return null;
+				}
+				i = (i + 1) & mask;
+			}
+			return null;
+		}
 	}
 
 	@FunctionalInterface
@@ -136,9 +222,12 @@ public final class TypedMessageReaderSchema {
 			case BOOLEAN -> (r, b, mr) -> {
 				setter.invokeExact(b, r.readBoolValue());
 			};
-			case ENUM -> (r, b, mr) -> {
-				setter.invokeExact(b, enumNumber(r, fd));
-			};
+			case ENUM -> {
+				Map<String, Integer> names = enumNames(fd.getEnumType());
+				yield (r, b, mr) -> {
+					setter.invokeExact(b, enumNumber(r, fd, names));
+				};
+			}
 			default -> {
 				ObjectParser parser = objectParser(fd, valueClass);
 				yield (r, b, mr) -> {
@@ -191,7 +280,8 @@ public final class TypedMessageReaderSchema {
 
 	private static ObjectParser objectParser(FieldDescriptor fd, Class<?> valueClass) {
 		if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
-			return (r, mr) -> enumNumber(r, fd);
+			Map<String, Integer> names = enumNames(fd.getEnumType());
+			return (r, mr) -> enumNumber(r, fd, names);
 		}
 		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE) {
 			if (WellKnownTypes.isWellKnownType(fd.getMessageType())) {
@@ -203,10 +293,27 @@ public final class TypedMessageReaderSchema {
 		return (r, mr) -> FieldReader.readValue(r, fd, mr);
 	}
 
-	private static int enumNumber(JSONReader reader, FieldDescriptor fd) {
-		return reader.isString()
-				? FieldReader.enumNumber(reader, fd.getEnumType(), reader.readString())
-				: reader.readInt32Value();
+	/**
+	 * Name to number table for one enum type, built when the schema is. It replaces
+	 * {@code EnumDescriptor.findValueByName}, which resolves through the file's
+	 * symbol table on every call.
+	 */
+	private static Map<String, Integer> enumNames(EnumDescriptor type) {
+		Map<String, Integer> names = new HashMap<>(type.getValues().size() * 2);
+		for (EnumValueDescriptor value : type.getValues()) {
+			names.put(value.getName(), value.getNumber());
+		}
+		return names;
+	}
+
+	private static int enumNumber(JSONReader reader, FieldDescriptor fd, Map<String, Integer> names) {
+		if (reader.isString()) {
+			String name = reader.readString();
+			Integer number = names.get(name);
+			// An unknown name takes the descriptor route, which throws the JSONException.
+			return number != null ? number : FieldReader.enumNumber(reader, fd.getEnumType(), name);
+		}
+		return reader.readInt32Value();
 	}
 
 	private static Class<?> valueClass(FieldDescriptor fd, String suffix, Class<?> messageClass)

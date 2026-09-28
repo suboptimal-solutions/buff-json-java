@@ -1,10 +1,16 @@
 package io.suboptimal.buffjson.protoc;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
+
+import io.suboptimal.buffjson.internal.FieldNameMatcher;
 
 /**
  * Generates a Java source file for a per-message-type JSON decoder. The
@@ -35,6 +41,12 @@ final class DecoderGenerator {
 		sb.append("    public static final ").append(decoderSimpleName).append(" INSTANCE = new ")
 				.append(decoderSimpleName).append("();\n\n");
 
+		// A null JSON value normally means "absent" (skip), but for
+		// google.protobuf.Value and google.protobuf.NullValue fields it is meaningful
+		// (NullValue). When the message has such fields we can't blanket-skip nulls;
+		// each field decides instead.
+		boolean nullSensitive = msgDesc.getFields().stream().anyMatch(fd -> isValueField(fd) || isNullValueField(fd));
+
 		sb.append("    @Override\n");
 		sb.append("    public ").append(messageClassName).append(
 				" readMessage(JSONReader reader, io.suboptimal.buffjson.internal.ProtobufMessageReader msgReader) {\n");
@@ -42,28 +54,30 @@ final class DecoderGenerator {
 				.append(".newBuilder();\n");
 		sb.append("        reader.nextIfObjectStart();\n");
 		sb.append("        while (!reader.nextIfObjectEnd()) {\n");
-		sb.append("            String fieldName = reader.readFieldName();\n");
-		sb.append("            if (fieldName == null) break;\n");
 
-		// A null JSON value normally means "absent" (skip), but for
-		// google.protobuf.Value and google.protobuf.NullValue fields it is meaningful
-		// (NullValue). When the message has such fields we can't blanket-skip nulls;
-		// each field decides instead.
-		boolean nullSensitive = msgDesc.getFields().stream().anyMatch(fd -> isValueField(fd) || isNullValueField(fd));
+		List<FieldDescriptor> fields = msgDesc.getFields();
+		// The common spelling of a member name (exactly "jsonName":) is resolved by a
+		// switch on its first four bytes plus fastjson2's byte-exact nextIfName4MatchN.
+		// Whatever that does not recognise (escapes, whitespace before ':', proto-name
+		// aliases, unknown members) takes the general readFieldName() route, so which
+		// field a name selects never depends on the fast route.
+		sb.append(
+				"            int f = io.suboptimal.buffjson.internal.FieldNameMatcher.AVAILABLE ? fieldOrdinal(reader) : -1;\n");
+		sb.append("            if (f == -1) {\n");
+		sb.append("                String fieldName = reader.readFieldName();\n");
+		sb.append("                if (fieldName == null) break;\n");
+		sb.append("                f = slowOrdinal(fieldName);\n");
+		sb.append("            }\n");
 
 		if (!nullSensitive) {
 			sb.append("            if (reader.nextIfNull()) continue;\n");
 		}
 
-		sb.append("            switch (fieldName) {\n");
+		sb.append("            switch (f) {\n");
 
-		for (FieldDescriptor fd : msgDesc.getFields()) {
-			String jsonName = fd.getJsonName();
-			sb.append("                case ").append(SourceLiterals.javaString(jsonName));
-			if (!fd.getName().equals(jsonName)) {
-				sb.append(", ").append(SourceLiterals.javaString(fd.getName()));
-			}
-			sb.append(" -> ");
+		for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
+			FieldDescriptor fd = fields.get(ordinal);
+			sb.append("                case ").append(ordinal).append(" -> ");
 
 			if (fd.isMapField()) {
 				generateMapFieldRead(sb, fd, protoToJavaClass, protoToDecoderClass, nullSensitive);
@@ -79,8 +93,102 @@ final class DecoderGenerator {
 		sb.append("        }\n");
 		sb.append("        return builder.build();\n");
 		sb.append("    }\n");
+
+		emitNameDispatch(sb, fields);
+		emitEnumHelpers(sb, referencedEnums(msgDesc), protoToJavaClass);
 		sb.append("}\n");
 		return sb.toString();
+	}
+
+	/**
+	 * Emits {@code fieldOrdinal(reader)}: switch on the 4 raw bytes starting at the
+	 * opening quote of the name, then let fastjson2 verify the rest of the name,
+	 * closing quote and colon byte-for-byte via {@code nextIfName4MatchN}.
+	 */
+	private static void emitNameDispatch(StringBuilder sb, List<FieldDescriptor> fields) {
+		// prefix (as LE int) -> list of "if (match) return ordinal;" statements
+		Map<Integer, List<String>> byPrefix = new LinkedHashMap<>();
+		for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
+			FieldNameMatcher matcher = FieldNameMatcher.of(fields.get(ordinal).getJsonName());
+			if (matcher == null) {
+				continue; // not fast-matchable; slow path resolves it
+			}
+			byPrefix.computeIfAbsent(matcher.prefix(), k -> new ArrayList<>())
+					.add("if (" + matcher.javaCall("reader") + ") return " + ordinal + ";");
+		}
+
+		sb.append("\n    private static int fieldOrdinal(JSONReader reader) {\n");
+		if (!byPrefix.isEmpty()) {
+			sb.append("        switch (reader.getRawInt()) {\n");
+			for (var e : byPrefix.entrySet()) {
+				sb.append("            case ").append(String.format("0x%08x", e.getKey())).append(":\n");
+				for (String stmt : e.getValue()) {
+					sb.append("                ").append(stmt).append("\n");
+				}
+				sb.append("                break;\n");
+			}
+			sb.append("            default:\n                break;\n");
+			sb.append("        }\n");
+		}
+		sb.append("        return -1;\n");
+		sb.append("    }\n");
+
+		sb.append("\n    private static int slowOrdinal(String fieldName) {\n");
+		sb.append("        switch (fieldName) {\n");
+		for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
+			FieldDescriptor fd = fields.get(ordinal);
+			sb.append("            case ").append(SourceLiterals.javaString(fd.getJsonName()));
+			if (!fd.getName().equals(fd.getJsonName())) {
+				sb.append(", ").append(SourceLiterals.javaString(fd.getName()));
+			}
+			sb.append(": return ").append(ordinal).append(";\n");
+		}
+		sb.append("            default: return -2;\n");
+		sb.append("        }\n");
+		sb.append("    }\n");
+	}
+
+	/** Expression converting an enum name to its number for {@code enumType}. */
+	private static String enumNameToNumber(EnumDescriptor enumType, String nameExpr) {
+		return enumHelperName(enumType) + "(reader, " + nameExpr + ")";
+	}
+
+	/**
+	 * Enum types the message reads by name: singular, repeated and map-value enum
+	 * fields.
+	 */
+	private static Map<String, EnumDescriptor> referencedEnums(Descriptor msgDesc) {
+		Map<String, EnumDescriptor> enums = new LinkedHashMap<>();
+		for (FieldDescriptor fd : msgDesc.getFields()) {
+			FieldDescriptor valueFd = fd.isMapField() ? fd.getMessageType().findFieldByName("value") : fd;
+			if (valueFd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
+				enums.putIfAbsent(valueFd.getEnumType().getFullName(), valueFd.getEnumType());
+			}
+		}
+		return enums;
+	}
+
+	private static String enumHelperName(EnumDescriptor enumType) {
+		return "enumNumber_" + enumType.getFullName().replace('.', '_');
+	}
+
+	private static void emitEnumHelpers(StringBuilder sb, Map<String, EnumDescriptor> enums,
+			Map<String, String> protoToJavaClass) {
+		for (EnumDescriptor enumType : enums.values()) {
+			String enumClass = protoToJavaClass.get(enumType.getFullName());
+			sb.append("\n    private static int ").append(enumHelperName(enumType))
+					.append("(JSONReader reader, String name) {\n");
+			sb.append("        switch (name) {\n");
+			for (var value : enumType.getValues()) {
+				sb.append("            case ").append(SourceLiterals.javaString(value.getName())).append(": return ")
+						.append(value.getNumber()).append(";\n");
+			}
+			// Unknown name: same descriptor lookup + JSONException as before.
+			sb.append("            default: return io.suboptimal.buffjson.internal.FieldReader.enumNumber(reader, ")
+					.append(enumClass).append(".getDescriptor(), name);\n");
+			sb.append("        }\n");
+			sb.append("    }\n");
+		}
 	}
 
 	// --- Scalar field ---
@@ -170,11 +278,9 @@ final class DecoderGenerator {
 		if (valueFd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
 			// Enum maps use putXxxValue(key, int) for unrecognized enum support
 			String valuePutter = putter + "Value(" + keyExpr + ", ";
-			String enumClass = protoToJavaClass.get(valueFd.getEnumType().getFullName());
 			sb.append(indent).append("        if (reader.isString()) {\n");
 			sb.append(indent).append("            ").append(valuePutter)
-					.append("io.suboptimal.buffjson.internal.FieldReader.enumNumber(reader, ").append(enumClass)
-					.append(".getDescriptor(), reader.readString()));\n");
+					.append(enumNameToNumber(valueFd.getEnumType(), "reader.readString()")).append(");\n");
 			sb.append(indent).append("        } else {\n");
 			sb.append(indent).append("            ").append(valuePutter).append("reader.readInt32Value());\n");
 			sb.append(indent).append("        }\n");
@@ -249,11 +355,10 @@ final class DecoderGenerator {
 				// Enum fields use the Value variant: setFoo -> setFooValue, addFoo ->
 				// addFooValue
 				String valueName = prefix + "Value";
-				String enumClass = protoToJavaClass.get(fd.getEnumType().getFullName());
 				sb.append(indent).append("if (reader.isString()) {\n");
-				sb.append(indent).append("    ").append(valueName)
-						.append("(io.suboptimal.buffjson.internal.FieldReader.enumNumber(reader, ").append(enumClass)
-						.append(".getDescriptor(), reader.readString())").append(closeSuffix).append(");\n");
+				sb.append(indent).append("    ").append(valueName).append("(")
+						.append(enumNameToNumber(fd.getEnumType(), "reader.readString()")).append(closeSuffix)
+						.append(");\n");
 				sb.append(indent).append("} else {\n");
 				sb.append(indent).append("    ").append(valueName).append("(reader.readInt32Value()")
 						.append(closeSuffix).append(");\n");

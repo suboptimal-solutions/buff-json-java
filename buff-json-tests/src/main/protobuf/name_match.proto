@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package io.suboptimal.buffjson.proto;
+
+option java_package = "io.suboptimal.buffjson.proto";
+option java_outer_classname = "NameMatchProto";
+option java_multiple_files = true;
+
+// Field JSON names of every length handled by the generated decoders' byte-exact name
+// matcher (2..43), plus lengths just outside it (1, 44, 50). Numbers are assigned in
+// declaration order so the message doubles as an in-order/out-of-order fixture.
+message TestNameLengths {
+    int32 a = 1;
+    int32 f2 = 2;
+    int32 f3x = 3;
+    int32 f4xx = 4;
+    int32 f5xxx = 5;
+    int32 f6xxxx = 6;
+    int32 f7xxxxx = 7;
+    int32 f8xxxxxx = 8;
+    int32 f9xxxxxxx = 9;
+    int32 f10xxxxxxx = 10;
+    int32 f11xxxxxxxx = 11;
+    int32 f12xxxxxxxxx = 12;
+    int32 f13xxxxxxxxxx = 13;
+    int32 f14xxxxxxxxxxx = 14;
+    int32 f15xxxxxxxxxxxx = 15;
+    int32 f16xxxxxxxxxxxxx = 16;
+    int32 f17xxxxxxxxxxxxxx = 17;
+    int32 f18xxxxxxxxxxxxxxx = 18;
+    int32 f19xxxxxxxxxxxxxxxx = 19;
+    int32 f20xxxxxxxxxxxxxxxxx = 20;
+    int32 f21xxxxxxxxxxxxxxxxxx = 21;
+    int32 f22xxxxxxxxxxxxxxxxxxx = 22;
+    int32 f23xxxxxxxxxxxxxxxxxxxx = 23;
+    int32 f24xxxxxxxxxxxxxxxxxxxxx = 24;
+    int32 f25xxxxxxxxxxxxxxxxxxxxxx = 25;
+    int32 f26xxxxxxxxxxxxxxxxxxxxxxx = 26;
+    int32 f27xxxxxxxxxxxxxxxxxxxxxxxx = 27;
+    int32 f28xxxxxxxxxxxxxxxxxxxxxxxxx = 28;
+    int32 f29xxxxxxxxxxxxxxxxxxxxxxxxxx = 29;
+    int32 f30xxxxxxxxxxxxxxxxxxxxxxxxxxx = 30;
+    int32 f31xxxxxxxxxxxxxxxxxxxxxxxxxxxx = 31;
+    int32 f32xxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 32;
+    int32 f33xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 33;
+    int32 f34xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 34;
+    int32 f35xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 35;
+    int32 f36xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 36;
+    int32 f37xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 37;
+    int32 f38xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 38;
+    int32 f39xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 39;
+    int32 f40xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 40;
+    int32 f41xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 41;
+    int32 f42xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 42;
+    int32 f43xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 43;
+    int32 f44xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 44;
+    int32 f50xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = 45;
+}
+
+enum NameEnum {
+    NAME_ENUM_UNSPECIFIED = 0;
+    NAME_ENUM_FIRST = 1;
+    NAME_ENUM_SECOND = 2;
+    NAME_ENUM_NEGATIVE = -1;
+}
+
+enum AliasedNameEnum {
+    option allow_alias = true;
+    ALIASED_NAME_ENUM_UNSPECIFIED = 0;
+    ALIASED_NAME_ENUM_A = 1;
+    ALIASED_NAME_ENUM_ALSO_A = 1;
+    ALIASED_NAME_ENUM_B = 2;
+}
+
+// Names that share the first four bytes of their `"xyz` prefix, names that are prefixes of
+// other names, snake_case names (JSON alias), enum fields of every cardinality, and custom
+// json_name values the fast matcher must leave to the general path.
+message TestNameCollisions {
+    int32 abc = 1;
+    int32 abcd = 2;
+    int32 abcde = 3;
+    int32 abcdx = 4;
+    int32 name = 5;
+    int32 names = 6;
+    int32 name_x = 7;
+    int32 id = 8;
+    int32 ident = 9;
+    int32 field_one = 10;
+    int64 x_y_z = 11;
+    string text = 12;
+    NameEnum kind = 13;
+    AliasedNameEnum aliased = 14;
+    repeated NameEnum kinds = 15;
+    map<string, NameEnum> kind_by_name = 16;
+    oneof choice {
+        NameEnum choice_kind = 17;
+        int32 choice_number = 18;
+    }
+    optional NameEnum maybe_kind = 19;
+    int32 custom_ascii = 20 [json_name = "a b"];
+    int32 custom_unicode = 21 [json_name = "h\u00e9llo"];
+    int32 custom_slash = 22 [json_name = "p/q"];
+    int32 custom_backslash = 23 [json_name = "back\\slash"];
+    int32 custom_quote = 24 [json_name = "quo\"te"];
+    TestNameCollisions nested = 25;
+}

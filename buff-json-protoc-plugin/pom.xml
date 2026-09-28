@@ -27,6 +27,13 @@
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
+        <!-- Build-time only: FieldNameMatcher is the single implementation of the byte-exact
+             field-name matcher layout. The plugin asks it for the literals embedded in generated
+             decoders, so generated code and runtime schemas cannot drift apart. -->
+        <dependency>
+            <groupId>io.github.suboptimal-solutions</groupId>
+            <artifactId>buff-json</artifactId>
+        </dependency>
         <!-- Build-time only: the plugin reuses ProtobufSchema to bake JSON Schema resources
              at code-generation time. Not a runtime dependency of the generated code. -->
         <dependency>
