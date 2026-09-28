@@ -15,6 +15,7 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
 final class DecoderGenerator {
 
 	private static final Set<String> WELL_KNOWN_TYPES = BuffJsonProtocPlugin.WELL_KNOWN_TYPES;
+	private static final String FIELD_READER = "io.suboptimal.buffjson.internal.FieldReader";
 
 	private DecoderGenerator() {
 	}
@@ -38,9 +39,14 @@ final class DecoderGenerator {
 		sb.append("    @Override\n");
 		sb.append("    public ").append(messageClassName).append(
 				" readMessage(JSONReader reader, io.suboptimal.buffjson.internal.ProtobufMessageReader msgReader) {\n");
+		// Every read must consume its value or throw: a message reader that returned on
+		// a non-object token (e.g. `1` in `"repeated": [1]`) without consuming it would
+		// make the enclosing array loop spin forever.
+		String fullNameLiteral = SourceLiterals.javaString(msgDesc.getFullName());
+		sb.append("        ").append(FIELD_READER).append(".requireObjectStart(reader, \"message\", ")
+				.append(fullNameLiteral).append(");\n");
 		sb.append("        ").append(messageClassName).append(".Builder builder = ").append(messageClassName)
 				.append(".newBuilder();\n");
-		sb.append("        reader.nextIfObjectStart();\n");
 		sb.append("        while (!reader.nextIfObjectEnd()) {\n");
 		sb.append("            String fieldName = reader.readFieldName();\n");
 		sb.append("            if (fieldName == null) break;\n");
@@ -130,7 +136,8 @@ final class DecoderGenerator {
 			sb.append("                    if (!reader.nextIfNull()) {\n");
 		}
 
-		sb.append(indent).append("    reader.nextIfArrayStart();\n");
+		sb.append(indent).append("    ").append(FIELD_READER).append(".requireArrayStart(reader, \"repeated field\", ")
+				.append(SourceLiterals.javaString(fd.getFullName())).append(");\n");
 		sb.append(indent).append("    while (!reader.nextIfArrayEnd()) {\n");
 		emitValueRead(sb, fd, adder, protoToJavaClass, protoToDecoderClass, indent + "        ");
 		sb.append(indent).append("    }\n");
@@ -158,7 +165,9 @@ final class DecoderGenerator {
 			sb.append("                    if (!reader.nextIfNull()) {\n");
 		}
 
-		sb.append(indent).append("    reader.nextIfObjectStart();\n");
+		String mapNameLiteral = SourceLiterals.javaString(fd.getFullName());
+		sb.append(indent).append("    ").append(FIELD_READER).append(".requireObjectStart(reader, \"map field\", ")
+				.append(mapNameLiteral).append(");\n");
 		sb.append(indent).append("    while (!reader.nextIfObjectEnd()) {\n");
 		sb.append(indent).append("        String keyStr = reader.readFieldName();\n");
 		sb.append(indent).append("        if (keyStr == null) break;\n");
@@ -289,9 +298,12 @@ final class DecoderGenerator {
 					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readListValue(reader)").append(closeSuffix)
 					.append(");\n");
 		} else if ("google.protobuf.Empty".equals(fullName)) {
-			sb.append(indent).append("reader.nextIfObjectStart();\n");
-			sb.append(indent)
-					.append("while (!reader.nextIfObjectEnd()) { reader.readFieldName(); reader.skipValue(); }\n");
+			sb.append(indent).append(FIELD_READER)
+					.append(".requireObjectStart(reader, \"message\", \"google.protobuf.Empty\");\n");
+			sb.append(indent).append("while (!reader.nextIfObjectEnd()) {\n");
+			sb.append(indent).append("    if (reader.readFieldName() == null) break;\n");
+			sb.append(indent).append("    reader.skipValue();\n");
+			sb.append(indent).append("}\n");
 			sb.append(indent).append(prefix).append("(com.google.protobuf.Empty.getDefaultInstance()")
 					.append(closeSuffix).append(");\n");
 		} else if (WELL_KNOWN_TYPES.contains(fullName)) {

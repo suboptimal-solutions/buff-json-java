@@ -123,8 +123,8 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 * descriptor/builder fallback.
 	 */
 	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
+		FieldReader.requireObjectStart(reader, "message", descriptor.getFullName());
 		Message.Builder builder = defaultInstance.newBuilderForType();
-		reader.nextIfObjectStart();
 		readRuntimeFields(reader, builder, descriptor);
 		return builder.build();
 	}
@@ -145,7 +145,7 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 				return decoder.readMessage(reader, this);
 			}
 		}
-		reader.nextIfObjectStart();
+		FieldReader.requireObjectStart(reader, "message", builder.getDescriptorForType().getFullName());
 		readRuntimeFields(reader, builder, builder.getDescriptorForType());
 		return builder.build();
 	}

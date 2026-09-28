@@ -802,8 +802,8 @@ public final class WellKnownTypes {
 
 	private static Struct readStruct(JSONReader reader, int depth) {
 		checkDepth(reader, depth);
+		FieldReader.requireObjectStart(reader, "message", "google.protobuf.Struct");
 		Struct.Builder builder = Struct.newBuilder();
-		reader.nextIfObjectStart();
 		while (!reader.nextIfObjectEnd()) {
 			String key = reader.readFieldName();
 			if (key == null) {
@@ -848,8 +848,8 @@ public final class WellKnownTypes {
 
 	private static ListValue readListValue(JSONReader reader, int depth) {
 		checkDepth(reader, depth);
+		FieldReader.requireArrayStart(reader, "message", "google.protobuf.ListValue");
 		ListValue.Builder builder = ListValue.newBuilder();
-		reader.nextIfArrayStart();
 		while (!reader.nextIfArrayEnd()) {
 			builder.addValues(readJsonValueImpl(reader, depth));
 		}
@@ -857,7 +857,7 @@ public final class WellKnownTypes {
 	}
 
 	private static Any readAny(JSONReader reader, ProtobufMessageReader msgReader) {
-		reader.nextIfObjectStart();
+		FieldReader.requireObjectStart(reader, "message", "google.protobuf.Any");
 
 		if (reader.nextIfObjectEnd()) {
 			return Any.getDefaultInstance();

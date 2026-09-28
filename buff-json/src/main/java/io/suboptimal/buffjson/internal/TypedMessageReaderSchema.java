@@ -149,8 +149,9 @@ public final class TypedMessageReaderSchema {
 		if (!fd.isRepeated()) {
 			return scalar;
 		}
+		String fieldName = fd.getFullName();
 		return (r, b, mr) -> {
-			r.nextIfArrayStart();
+			FieldReader.requireArrayStart(r, "repeated field", fieldName);
 			while (!r.nextIfArrayEnd()) {
 				if (!r.nextIfNull()) {
 					scalar.read(r, b, mr);
@@ -175,8 +176,9 @@ public final class TypedMessageReaderSchema {
 				: valueFd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
 						? ProtobufMessageReader.getDefaultInstance(valueClass)
 						: FieldReader.getDefaultMapValue(valueFd);
+		String fieldName = fd.getFullName();
 		return (r, b, mr) -> {
-			r.nextIfObjectStart();
+			FieldReader.requireObjectStart(r, "map field", fieldName);
 			while (!r.nextIfObjectEnd()) {
 				String keyText = r.readFieldName();
 				if (keyText == null) {

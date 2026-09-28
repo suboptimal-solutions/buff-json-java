@@ -317,11 +317,35 @@ public final class FieldReader {
 	}
 
 	/**
+	 * Consumes the opening {@code '{'} of a message, map or Struct value, or throws
+	 * {@link JSONException}. A reader must never return without consuming its
+	 * value: an element reader that leaves a non-object token (such as {@code 1} in
+	 * {@code "repeatedMessage": [1]}) in place makes the enclosing array loop see
+	 * the same token forever. Public so generated decoders (in other packages)
+	 * share the same check and error message.
+	 */
+	public static void requireObjectStart(JSONReader reader, String kind, String name) {
+		if (!reader.nextIfObjectStart()) {
+			throw new JSONException(reader.info("Expected a JSON object for " + kind + " " + name));
+		}
+	}
+
+	/**
+	 * Consumes the opening {@code '['} of a repeated field or ListValue, or throws
+	 * {@link JSONException} (see {@link #requireObjectStart}).
+	 */
+	public static void requireArrayStart(JSONReader reader, String kind, String name) {
+		if (!reader.nextIfArrayStart()) {
+			throw new JSONException(reader.info("Expected a JSON array for " + kind + " " + name));
+		}
+	}
+
+	/**
 	 * Reads a repeated field as a JSON array, adding each element to the builder.
 	 */
 	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
 			ProtobufMessageReader msgReader) {
-		reader.nextIfArrayStart();
+		requireArrayStart(reader, "repeated field", fd.getFullName());
 		while (!reader.nextIfArrayEnd()) {
 			if (reader.nextIfNull()) {
 				continue;
@@ -340,7 +364,7 @@ public final class FieldReader {
 		FieldDescriptor keyFd = entryDesc.findFieldByName("key");
 		FieldDescriptor valueFd = entryDesc.findFieldByName("value");
 
-		reader.nextIfObjectStart();
+		requireObjectStart(reader, "map field", fd.getFullName());
 		while (!reader.nextIfObjectEnd()) {
 			String keyStr = reader.readFieldName();
 			if (keyStr == null) {

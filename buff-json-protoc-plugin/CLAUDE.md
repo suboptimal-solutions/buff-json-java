@@ -76,6 +76,7 @@ For each non-WKT, non-map-entry message type:
 - **Deprecated fields/types** — included in generated codecs. Both codec classes suppress Java deprecation warnings so generated calls compile with `-Werror`; protobuf deprecation does not change JSON semantics.
 - **Unsigned map keys** — uint32/fixed32 use `Integer.toUnsignedLong`; uint64/fixed64 use `WellKnownTypes.writeUnsignedLongString`. Keys always remain quoted JSON strings. Long-key writes share `FieldWriter.writeLongMapKey`, which preserves key spelling under BrowserCompatible and WriteClassName; boolean keys use constant strings.
 
+- **Container checks** — generated decoders call `FieldReader.requireObjectStart` (messages, maps, inline `Empty`), and `requireArrayStart` (repeated fields) instead of ignoring the result of `nextIfObjectStart()`/`nextIfArrayStart()`. A reader that returned without consuming a non-object token made the enclosing array loop spin until `OutOfMemoryError`. Rebuild consumers with `mvn clean install`: the protobuf plugin only regenerates when `.proto` inputs change.
 - **`google.protobuf.Empty`** is NOT in the WKT set — it serializes as a regular empty message `{}`
 - **`DynamicMessage`** cannot use generated encoders (would fail cast) — guarded in `ProtobufMessageWriter`
 - **Map entry types** (`options.map_entry = true`) are skipped — they're synthetic
