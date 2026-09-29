@@ -347,9 +347,7 @@ public final class TypedMessageReaderSchema {
 			case BOOLEAN -> boolean.class;
 			case STRING -> String.class;
 			case BYTE_STRING -> ByteString.class;
-			case MESSAGE -> (fd.isRepeated()
-					? messageClass.getMethod("get" + suffix, int.class)
-					: messageClass.getMethod("get" + suffix)).getReturnType();
+			case MESSAGE -> ProtobufJavaNames.messageClassOf(messageClass, fd);
 		};
 	}
 

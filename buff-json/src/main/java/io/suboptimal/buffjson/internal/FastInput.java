@@ -90,6 +90,7 @@ public final class FastInput {
 	private final byte[] b;
 	private final int end;
 	private final boolean latin1;
+	private boolean runtimeCodegen;
 	private int p;
 	private int depth;
 
@@ -113,6 +114,20 @@ public final class FastInput {
 		this.end = offset + length;
 		this.latin1 = latin1;
 		skipWs();
+	}
+
+	/**
+	 * Whether a reader met while reading may be generated at run time for a nested
+	 * message that has none (see {@code RuntimeReaders}); set by the decoder that
+	 * created the cursor from its own setting.
+	 */
+	public FastInput allowRuntimeCodegen(boolean allowed) {
+		this.runtimeCodegen = allowed;
+		return this;
+	}
+
+	public boolean runtimeCodegen() {
+		return runtimeCodegen;
 	}
 
 	/** The bail-out to throw for anything this cursor does not handle. */

@@ -3,6 +3,8 @@ package io.suboptimal.buffjson.protoc;
 import com.alibaba.fastjson2.JSONFactory;
 import com.alibaba.fastjson2.JSONWriter;
 
+import io.suboptimal.buffjson.internal.codegen.SourcePrinter;
+
 /** Literal escaping used by both codec generators. */
 final class SourceLiterals {
 	private SourceLiterals() {
@@ -19,31 +21,8 @@ final class SourceLiterals {
 		}
 	}
 
-	/**
-	 * Quotes a Java string literal. LF and CR must use ordinary escapes: Java
-	 * processes Unicode escapes before tokenizing, so Unicode-escaped line breaks
-	 * would leave the generated string literal unclosed.
-	 */
+	/** Quotes a Java string literal. */
 	static String javaString(String value) {
-		StringBuilder sb = new StringBuilder(value.length() + 8).append('"');
-		for (int i = 0; i < value.length(); i++) {
-			char c = value.charAt(i);
-			switch (c) {
-				case '"' -> sb.append("\\\"");
-				case '\\' -> sb.append("\\\\");
-				case '\n' -> sb.append("\\n");
-				case '\r' -> sb.append("\\r");
-				case '\t' -> sb.append("\\t");
-				case '\b' -> sb.append("\\b");
-				case '\f' -> sb.append("\\f");
-				default -> {
-					if (c >= 0x20 && c <= 0x7e)
-						sb.append(c);
-					else
-						sb.append(String.format("\\u%04x", (int) c));
-				}
-			}
-		}
-		return sb.append('"').toString();
+		return SourcePrinter.javaString(value);
 	}
 }

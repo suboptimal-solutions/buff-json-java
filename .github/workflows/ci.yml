@@ -8,7 +8,13 @@ on:
 
 jobs:
   build:
+    # Java 25 also compiles and tests the Class-File API code generation (Java 24+); on 21 those
+    # tests are skipped. Everything is still compiled for Java 21.
+    name: Build and test (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [21, 25]
 
     steps:
       - uses: actions/checkout@v5
@@ -16,11 +22,16 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: corretto
-          java-version: 21
+          java-version: ${{ matrix.java }}
           cache: maven
 
       - name: Build and test
         run: mvn verify -B
+
+      - name: Test with run-time code generation on by default
+        # every decode test that reaches a non-plugin decoder then runs through a generated reader first
+        if: matrix.java == 25
+        run: mvn verify -B -DargLine=-Dbuffjson.runtimeCodegen=true
 
   allocation-check:
     # Asserts JMH gc.alloc.rate.norm budgets per benchmark — guards against

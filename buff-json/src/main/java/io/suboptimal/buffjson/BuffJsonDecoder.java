@@ -15,6 +15,7 @@ import io.suboptimal.buffjson.internal.FastInput;
 import io.suboptimal.buffjson.internal.GeneratedDecoderRegistry;
 import io.suboptimal.buffjson.internal.ProtobufMessageReader;
 import io.suboptimal.buffjson.internal.ProtobufReaderModule;
+import io.suboptimal.buffjson.internal.codegen.RuntimeCodegen;
 
 /**
  * Configurable decoder for JSON-to-protobuf deserialization.
@@ -45,10 +46,17 @@ import io.suboptimal.buffjson.internal.ProtobufReaderModule;
  */
 public final class BuffJsonDecoder {
 
+	/**
+	 * Whether new decoders generate readers at run time; {@code false} unless
+	 * {@code -Dbuffjson.runtimeCodegen=true}.
+	 */
+	private static final boolean DEFAULT_RUNTIME_CODEGEN = Boolean.getBoolean("buffjson.runtimeCodegen");
+
 	private TypeRegistry typeRegistry;
 	private boolean useGeneratedDecoders = true;
 	private boolean useTypedAccessors = true;
 	private boolean useFastPath = true;
+	private boolean useRuntimeCodegen = DEFAULT_RUNTIME_CODEGEN;
 	private volatile ProtobufMessageReader cachedReader;
 
 	BuffJsonDecoder() {
@@ -107,13 +115,41 @@ public final class BuffJsonDecoder {
 	}
 
 	/**
+	 * Enables generating decoders at run time (default: false, or the system
+	 * property {@code buffjson.runtimeCodegen}) for message classes that have none
+	 * from the protoc plugin, on a JVM that can do it (Java 24+, which has the
+	 * Class-File API). The generated decoder is the canonical-input reader the
+	 * plugin would have generated, so such messages get the fast path too; the
+	 * general decoding of anything that is not canonical is unchanged. If
+	 * generation is not possible for a message class, it is decoded as without this
+	 * option.
+	 *
+	 * <p>
+	 * Together with {@link #setGeneratedDecoders} disabled, nested messages are
+	 * generated too, ignoring the plugin's decoders.
+	 */
+	public BuffJsonDecoder setRuntimeCodegen(boolean enabled) {
+		this.useRuntimeCodegen = enabled;
+		return this;
+	}
+
+	public boolean getRuntimeCodegen() {
+		return useRuntimeCodegen;
+	}
+
+	/** Whether input is first offered to a canonical-input reader. */
+	private boolean fastEnabled() {
+		return useFastPath && (useGeneratedDecoders || useRuntimeCodegen);
+	}
+
+	/**
 	 * Decodes a proto3 JSON string to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(String json, Class<T> messageClass) {
 		if (json == null || json.isEmpty()) {
 			return null;
 		}
-		if (useFastPath && useGeneratedDecoders) {
+		if (fastEnabled()) {
 			byte[] latin1 = latin1Bytes(json);
 			if (latin1 != null) {
 				T fast = decodeFast(latin1, 0, latin1.length, true, messageClass);
@@ -135,7 +171,7 @@ public final class BuffJsonDecoder {
 		if (json == null || length == 0) {
 			return null;
 		}
-		if (useFastPath && useGeneratedDecoders && offset >= 0 && length > 0 && offset <= json.length() - length) {
+		if (fastEnabled() && offset >= 0 && length > 0 && offset <= json.length() - length) {
 			byte[] latin1 = latin1Bytes(json);
 			if (latin1 != null) {
 				T fast = decodeFast(latin1, offset, length, true, messageClass);
@@ -153,7 +189,7 @@ public final class BuffJsonDecoder {
 	 * Decodes a UTF-8 JSON byte array to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(byte[] json, Class<T> messageClass) {
-		if (useFastPath && useGeneratedDecoders && json != null) {
+		if (fastEnabled() && json != null) {
 			T fast = decodeFast(json, 0, json.length, false, messageClass);
 			if (fast != null) {
 				return fast;
@@ -169,7 +205,7 @@ public final class BuffJsonDecoder {
 	 * — FastJson2 reads directly from the provided array.
 	 */
 	public <T extends Message> T decode(byte[] json, int offset, int length, Class<T> messageClass) {
-		if (useFastPath && useGeneratedDecoders && json != null) {
+		if (fastEnabled() && json != null) {
 			T fast = decodeFast(json, offset, length, false, messageClass);
 			if (fast != null) {
 				return fast;
@@ -233,7 +269,10 @@ public final class BuffJsonDecoder {
 	@SuppressWarnings("unchecked")
 	private <T extends Message> T decodeFast(byte[] json, int offset, int length, boolean latin1,
 			Class<T> messageClass) {
-		BuffJsonGeneratedDecoder<Message> decoder = FAST_DECODERS.get(messageClass);
+		BuffJsonGeneratedDecoder<Message> decoder = useGeneratedDecoders ? FAST_DECODERS.get(messageClass) : null;
+		if (decoder == null && useRuntimeCodegen) {
+			decoder = RuntimeCodegen.fastDecoder(messageClass, useGeneratedDecoders);
+		}
 		if (decoder == null) {
 			return null;
 		}
@@ -241,7 +280,7 @@ public final class BuffJsonDecoder {
 			// Generated readers index the array directly and may look at bytes past the
 			// end of a slice. A document that needed them ends beyond the slice, which
 			// finished() reports, and the general decoder then rules on it.
-			FastInput in = new FastInput(json, offset, length, latin1);
+			FastInput in = new FastInput(json, offset, length, latin1).allowRuntimeCodegen(useRuntimeCodegen);
 			T message = (T) decoder.readFast(in);
 			return in.finished() ? message : null;
 		} catch (FastInput.Bail | IndexOutOfBoundsException bail) {

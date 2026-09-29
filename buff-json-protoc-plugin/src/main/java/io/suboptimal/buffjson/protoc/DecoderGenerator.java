@@ -11,6 +11,9 @@ import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 
 import io.suboptimal.buffjson.internal.FieldNameMatcher;
+import io.suboptimal.buffjson.internal.codegen.FastReaderTemplate;
+import io.suboptimal.buffjson.internal.codegen.Members;
+import io.suboptimal.buffjson.internal.codegen.SourcePrinter;
 
 /**
  * Generates a Java source file for a per-message-type JSON decoder. The
@@ -45,7 +48,7 @@ final class DecoderGenerator {
 		// google.protobuf.Value and google.protobuf.NullValue fields it is meaningful
 		// (NullValue). When the message has such fields we can't blanket-skip nulls;
 		// each field decides instead.
-		boolean nullSensitive = msgDesc.getFields().stream().anyMatch(fd -> isValueField(fd) || isNullValueField(fd));
+		boolean nullSensitive = FastReaderTemplate.nullSensitive(msgDesc);
 
 		sb.append("    @Override\n");
 		sb.append("    public ").append(messageClassName).append(
@@ -96,7 +99,7 @@ final class DecoderGenerator {
 
 		emitNameDispatch(sb, fields);
 		emitEnumHelpers(sb, referencedEnums(msgDesc), protoToJavaClass);
-		FastDecoderGenerator.emit(sb, msgDesc, messageClassName, protoToJavaClass, protoToDecoderClass, nullSensitive);
+		FastDecoderGenerator.emit(sb, msgDesc, javaPackage, decoderSimpleName, protoToJavaClass, protoToDecoderClass);
 		sb.append("}\n");
 		return sb.toString();
 	}
@@ -134,19 +137,9 @@ final class DecoderGenerator {
 		sb.append("        return -1;\n");
 		sb.append("    }\n");
 
-		sb.append("\n    private static int slowOrdinal(String fieldName) {\n");
-		sb.append("        switch (fieldName) {\n");
-		for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
-			FieldDescriptor fd = fields.get(ordinal);
-			sb.append("            case ").append(SourceLiterals.javaString(fd.getJsonName()));
-			if (!fd.getName().equals(fd.getJsonName())) {
-				sb.append(", ").append(SourceLiterals.javaString(fd.getName()));
-			}
-			sb.append(": return ").append(ordinal).append(";\n");
-		}
-		sb.append("            default: return -2;\n");
-		sb.append("        }\n");
-		sb.append("    }\n");
+		// the same name -> ordinal switch the canonical-input reader uses
+		sb.append('\n');
+		SourcePrinter.print(sb, new Members(List.of(), List.of(FastReaderTemplate.slowOrdinal(fields))), "    ");
 	}
 
 	/** Expression converting an enum name to its number for {@code enumType}. */
@@ -420,9 +413,10 @@ final class DecoderGenerator {
 						.append(".INSTANCE.readMessage(reader, msgReader)").append(closeSuffix).append(");\n");
 			} else {
 				String msgJavaClass = protoToJavaClass.get(fullName);
-				sb.append(indent).append(prefix).append("(msgReader.readMessage(reader, ").append(msgJavaClass)
-						.append(".getDescriptor(), ").append(msgJavaClass).append(".getDefaultInstance())")
-						.append(closeSuffix).append(");\n");
+				// readMessage returns a Message; the builder's setter wants the message class
+				sb.append(indent).append(prefix).append("((").append(msgJavaClass)
+						.append(") msgReader.readMessage(reader, ").append(msgJavaClass).append(".getDescriptor(), ")
+						.append(msgJavaClass).append(".getDefaultInstance())").append(closeSuffix).append(");\n");
 			}
 		}
 	}

@@ -1,6 +1,8 @@
 package io.suboptimal.buffjson.internal;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.alibaba.fastjson2.JSONReader;
 
@@ -159,7 +161,7 @@ public final class FieldNameMatcher {
 
 	/**
 	 * Like {@link #of}, for matching done by this library's own cursor
-	 * ({@link #inlineTest}), which does not depend on fastjson2 offering the
+	 * ({@link #inlinePieces}), which does not depend on fastjson2 offering the
 	 * {@code nextIfName4MatchN} family.
 	 */
 	public static FieldNameMatcher ofInline(String jsonName) {
@@ -172,24 +174,31 @@ public final class FieldNameMatcher {
 	}
 
 	/**
-	 * Java source of a boolean expression that is true iff the bytes at
-	 * {@code position} of {@code array} continue with the part of {@code "name":}
-	 * after the four prefix bytes -- which the caller has already compared as
-	 * {@link #prefix()} -- read with little-endian 8-byte, 4-byte and single-byte
-	 * comparisons. The array is the whole document, so reads past its end throw
-	 * {@code IndexOutOfBoundsException}, which the fast path treats as "not
-	 * canonical". Used by generated {@code fastOrdinal} methods.
+	 * One comparison of {@link #inlinePieces()}: the {@code width} (8, 4 or 1)
+	 * bytes at {@code offset} from the start of the name, read little-endian, equal
+	 * {@code value}.
 	 */
-	public String inlineTest(String array, String position) {
-		StringBuilder test = new StringBuilder();
+	public record Piece(int offset, int width, long value) {
+	}
+
+	/**
+	 * The comparisons that verify the part of {@code "name":} after the four prefix
+	 * bytes -- which the caller has already compared as {@link #prefix()} -- as
+	 * little-endian 8-byte, 4-byte and single-byte reads, all of which have to
+	 * hold. The generated code reads the whole document array, so reads past its
+	 * end throw {@code IndexOutOfBoundsException}, which the fast path treats as
+	 * "not canonical". Every byte is printable ASCII, so a single byte is never
+	 * negative.
+	 */
+	public List<Piece> inlinePieces() {
+		List<Piece> pieces = new ArrayList<>();
 		int o = 4;
 		while (pattern.length - o >= 8) {
 			long v = 0;
 			for (int i = 7; i >= 0; i--) {
 				v = v << 8 | (pattern[o + i] & 0xffL);
 			}
-			and(test).append(String.format("io.suboptimal.buffjson.internal.FastInput.l8(%s, %s + %d) == 0x%016xL",
-					array, position, o, v));
+			pieces.add(new Piece(o, 8, v));
 			o += 8;
 		}
 		if (pattern.length - o >= 4) {
@@ -197,18 +206,13 @@ public final class FieldNameMatcher {
 			for (int i = 3; i >= 0; i--) {
 				v = v << 8 | (pattern[o + i] & 0xff);
 			}
-			and(test).append(String.format("io.suboptimal.buffjson.internal.FastInput.i4(%s, %s + %d) == 0x%08x", array,
-					position, o, v));
+			pieces.add(new Piece(o, 4, v));
 			o += 4;
 		}
 		for (; o < pattern.length; o++) {
-			and(test).append(String.format("%s[%s + %d] == (byte) 0x%02x", array, position, o, pattern[o] & 0xff));
+			pieces.add(new Piece(o, 1, pattern[o] & 0xff));
 		}
-		return test.toString();
-	}
-
-	private static StringBuilder and(StringBuilder test) {
-		return test.length() == 0 ? test : test.append(" && ");
+		return pieces;
 	}
 
 	/**

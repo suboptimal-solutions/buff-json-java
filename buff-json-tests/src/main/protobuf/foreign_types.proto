@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package io.suboptimal.buffjson.proto;
+
+import "google/protobuf/source_context.proto";
+
+option java_package = "io.suboptimal.buffjson.proto";
+option java_outer_classname = "ForeignTypesProto";
+option java_multiple_files = true;
+
+// google.protobuf.SourceContext is an ordinary message (not one with a special JSON form)
+// from protobuf-java's jar: the plugin does not run on it, so it has no generated decoder
+// and code generated for a message that holds one has to find a reader when it is decoded.
+message TestForeign {
+    google.protobuf.SourceContext context = 1;
+    repeated google.protobuf.SourceContext contexts = 2;
+    map<string, google.protobuf.SourceContext> by_name = 3;
+    string label = 4;
+}

@@ -96,7 +96,7 @@ public final class BuffJsonProtocPlugin {
 		for (FileDescriptor fileDesc : fileDescriptors.values()) {
 			if (!filesToGenerate.contains(fileDesc.getName()))
 				continue;
-			String javaPackage = getJavaPackage(fileDesc);
+			String javaPackage = javaPackage(fileDesc);
 			for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
 				collectCodegenNames(msgDesc, javaPackage, protoToEncoderClass, "JsonEncoder");
 				collectCodegenNames(msgDesc, javaPackage, protoToDecoderClass, "JsonDecoder");
@@ -107,7 +107,7 @@ public final class BuffJsonProtocPlugin {
 			if (!filesToGenerate.contains(fileDesc.getName()))
 				continue;
 
-			String javaPackage = getJavaPackage(fileDesc);
+			String javaPackage = javaPackage(fileDesc);
 
 			for (Descriptor msgDesc : fileDesc.getMessageTypes()) {
 				generateCodegenClasses(response, msgDesc, javaPackage, protoToJavaClass, protoToEncoderClass,
@@ -305,7 +305,7 @@ public final class BuffJsonProtocPlugin {
 	static Map<String, String> buildClassNameMap(Map<String, FileDescriptor> fileDescriptors) {
 		Map<String, String> map = new HashMap<>();
 		for (FileDescriptor fd : fileDescriptors.values()) {
-			String javaPackage = getJavaPackage(fd);
+			String javaPackage = javaPackage(fd);
 			boolean multipleFiles = fd.getOptions().getJavaMultipleFiles();
 			String outerClassName = multipleFiles ? null : getOuterClassName(fd);
 
@@ -332,7 +332,7 @@ public final class BuffJsonProtocPlugin {
 		}
 	}
 
-	private static String getJavaPackage(FileDescriptor fd) {
+	static String javaPackage(FileDescriptor fd) {
 		if (fd.getOptions().hasJavaPackage()) {
 			return fd.getOptions().getJavaPackage();
 		}
