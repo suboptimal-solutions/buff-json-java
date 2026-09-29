@@ -121,6 +121,8 @@ The typed decoder uses no runtime bytecode generation. Native images need reacha
 
 With the protoc plugin, `decode(byte[])` and `decode(String)` first try a generated *canonical-input reader*: a straight-line parser for plain proto3 JSON (any whitespace layout, camelCase or proto field names, canonical numbers and timestamps) that reads the raw bytes without a `JSONReader`. Anything it does not recognise with certainty — escaped member names, `1.0` for an integer, unknown enum names, `Any`/`Struct`/`Value`/`FieldMask` values, malformed input — makes it give up, and the whole document is decoded by the regular generated decoder, so results and errors are exactly the same. `BuffJson.decoder().setFastPath(false)` turns it off. See [decode performance on Java 25](docs/decode-performance-java25.md) for measurements.
 
+On Java 24+ the same reader can be generated **at run time**, without the plugin: `BuffJson.decoder().setRuntimeCodegen(true)` (or `-Dbuffjson.runtimeCodegen=true` for the whole JVM) makes the first `decode` of a message class define the reader next to it with the Class-File API — from the very template the plugin prints as Java, so results are identical — and decodes about 1.7× as fast as the typed-builder decoder on JDK 25 (geometric mean over seven message shapes), on par with the plugin's generated decoder. It is off by default, costs about a quarter of a second for the first message class in a cold JVM, and falls back silently to the regular decoders where it cannot work (older JVMs, native images). See [run-time code generation](docs/runtime-codegen.md).
+
 ### Mixed pojo + protobuf (fastjson2 registration)
 
 For projects that use `JSON.toJSONString()` with both POJOs and protobuf messages, register fastjson2 modules from the encoder/decoder:
@@ -263,7 +265,7 @@ Once registered, any protobuf message type used in your API controllers is autom
 
 ## Building
 
-Requires Java 21+ and Maven 3.9+.
+Requires Java 21+ and Maven 3.9+. Build with JDK 24+ (the library is still compiled for Java 21) to include the Class-File API code generation; on JDK 21 that part is skipped.
 
 ```bash
 mvn clean install
