@@ -3,6 +3,7 @@ package io.suboptimal.buffjson;
 import com.alibaba.fastjson2.JSONReader;
 import com.google.protobuf.Message;
 
+import io.suboptimal.buffjson.internal.FastInput;
 import io.suboptimal.buffjson.internal.ProtobufMessageReader;
 
 /**
@@ -30,4 +31,18 @@ public interface BuffJsonGeneratedDecoder<T extends Message> {
 	 *            for recursive nested message reads
 	 */
 	T readMessage(JSONReader reader, ProtobufMessageReader msgReader);
+
+	/**
+	 * Reads a message straight from canonical JSON bytes, or gives up by throwing
+	 * {@link FastInput#bail()}. Never reports a parse error of its own: whenever
+	 * the input is anything other than plain canonical proto3 JSON the caller
+	 * re-runs it through {@link #readMessage}, which owns error handling. Generated
+	 * decoders that predate this method inherit the default and always give up.
+	 *
+	 * @param in
+	 *            the cursor, positioned at the message's opening brace
+	 */
+	default T readFast(FastInput in) {
+		throw FastInput.bail();
+	}
 }

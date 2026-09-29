@@ -383,7 +383,8 @@ class BuffJsonHardeningTest {
 	@Nested
 	class NonObjectMessageValues {
 
-		private final java.util.List<BuffJsonDecoder> decoders = java.util.List.of(CODEGEN_DECODER, RUNTIME_DECODER,
+		private final java.util.List<BuffJsonDecoder> decoders = java.util.List.of(CODEGEN_DECODER,
+				BuffJson.decoder().setFastPath(false), RUNTIME_DECODER,
 				BuffJson.decoder().setGeneratedDecoders(false).setTypedAccessors(false));
 
 		private void assertRejected(String json, Class<? extends Message> type) {

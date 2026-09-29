@@ -96,6 +96,7 @@ final class DecoderGenerator {
 
 		emitNameDispatch(sb, fields);
 		emitEnumHelpers(sb, referencedEnums(msgDesc), protoToJavaClass);
+		FastDecoderGenerator.emit(sb, msgDesc, messageClassName, protoToJavaClass, protoToDecoderClass, nullSensitive);
 		sb.append("}\n");
 		return sb.toString();
 	}

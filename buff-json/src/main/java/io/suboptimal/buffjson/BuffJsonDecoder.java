@@ -6,10 +6,13 @@ import java.nio.charset.StandardCharsets;
 import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONReader;
 import com.alibaba.fastjson2.modules.ObjectReaderModule;
+import com.alibaba.fastjson2.util.JDKUtils;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Message;
 import com.google.protobuf.TypeRegistry;
 
+import io.suboptimal.buffjson.internal.FastInput;
+import io.suboptimal.buffjson.internal.GeneratedDecoderRegistry;
 import io.suboptimal.buffjson.internal.ProtobufMessageReader;
 import io.suboptimal.buffjson.internal.ProtobufReaderModule;
 
@@ -45,6 +48,7 @@ public final class BuffJsonDecoder {
 	private TypeRegistry typeRegistry;
 	private boolean useGeneratedDecoders = true;
 	private boolean useTypedAccessors = true;
+	private boolean useFastPath = true;
 	private volatile ProtobufMessageReader cachedReader;
 
 	BuffJsonDecoder() {
@@ -85,11 +89,38 @@ public final class BuffJsonDecoder {
 	}
 
 	/**
+	 * Enables the canonical-input fast path (default: true). With generated
+	 * decoders enabled, {@code byte[]} and {@code String} input is first read by a
+	 * cursor that understands only plain canonical proto3 JSON; if the document is
+	 * anything else (escaped names, non-canonical numbers, unknown enum names,
+	 * well-known types it does not handle, malformed input, ...) the whole document
+	 * is decoded again by the general decoder, so results and errors are exactly
+	 * those of the general decoder. Disable to force the general decoder.
+	 */
+	public BuffJsonDecoder setFastPath(boolean enabled) {
+		this.useFastPath = enabled;
+		return this;
+	}
+
+	public boolean getFastPath() {
+		return useFastPath;
+	}
+
+	/**
 	 * Decodes a proto3 JSON string to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(String json, Class<T> messageClass) {
 		if (json == null || json.isEmpty()) {
 			return null;
+		}
+		if (useFastPath && useGeneratedDecoders) {
+			byte[] latin1 = latin1Bytes(json);
+			if (latin1 != null) {
+				T fast = decodeFast(latin1, 0, latin1.length, true, messageClass);
+				if (fast != null) {
+					return fast;
+				}
+			}
 		}
 		try (JSONReader reader = JSONReader.of(json)) {
 			return readProto(reader, messageClass);
@@ -104,6 +135,15 @@ public final class BuffJsonDecoder {
 		if (json == null || length == 0) {
 			return null;
 		}
+		if (useFastPath && useGeneratedDecoders && offset >= 0 && length > 0 && offset <= json.length() - length) {
+			byte[] latin1 = latin1Bytes(json);
+			if (latin1 != null) {
+				T fast = decodeFast(latin1, offset, length, true, messageClass);
+				if (fast != null) {
+					return fast;
+				}
+			}
+		}
 		try (JSONReader reader = JSONReader.of(json, offset, length)) {
 			return readProto(reader, messageClass);
 		}
@@ -113,6 +153,12 @@ public final class BuffJsonDecoder {
 	 * Decodes a UTF-8 JSON byte array to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(byte[] json, Class<T> messageClass) {
+		if (useFastPath && useGeneratedDecoders && json != null) {
+			T fast = decodeFast(json, 0, json.length, false, messageClass);
+			if (fast != null) {
+				return fast;
+			}
+		}
 		try (JSONReader reader = JSONReader.of(json)) {
 			return readProto(reader, messageClass);
 		}
@@ -123,6 +169,12 @@ public final class BuffJsonDecoder {
 	 * — FastJson2 reads directly from the provided array.
 	 */
 	public <T extends Message> T decode(byte[] json, int offset, int length, Class<T> messageClass) {
+		if (useFastPath && useGeneratedDecoders && json != null) {
+			T fast = decodeFast(json, offset, length, false, messageClass);
+			if (fast != null) {
+				return fast;
+			}
+		}
 		try (JSONReader reader = JSONReader.of(json, offset, length)) {
 			return readProto(reader, messageClass);
 		}
@@ -148,6 +200,68 @@ public final class BuffJsonDecoder {
 	 */
 	public ObjectReaderModule readerModule() {
 		return new ProtobufReaderModule(messageReader());
+	}
+
+	/**
+	 * Per message class: its generated decoder, or none (then the fast path is
+	 * skipped).
+	 */
+	private static final ClassValue<BuffJsonGeneratedDecoder<Message>> FAST_DECODERS = new ClassValue<>() {
+		@Override
+		@SuppressWarnings("unchecked")
+		protected BuffJsonGeneratedDecoder<Message> computeValue(Class<?> type) {
+			try {
+				Message defaultInstance = ProtobufMessageReader.getDefaultInstance(type);
+				if (defaultInstance instanceof BuffJsonCodecHolder holder) {
+					var decoder = (BuffJsonGeneratedDecoder<Message>) holder.buffJsonDecoder();
+					// same side effect as the general path: descriptor-only nested reads find it
+					GeneratedDecoderRegistry.put(defaultInstance.getDescriptorForType(), decoder);
+					return decoder;
+				}
+			} catch (RuntimeException notAMessageClass) {
+				// the general path reports it
+			}
+			return null;
+		}
+	};
+
+	/**
+	 * Tries the canonical-input fast path. Returns {@code null} whenever the input
+	 * is anything but plain canonical JSON (or there is no generated decoder); the
+	 * caller then decodes it the general way, which alone decides errors.
+	 */
+	@SuppressWarnings("unchecked")
+	private <T extends Message> T decodeFast(byte[] json, int offset, int length, boolean latin1,
+			Class<T> messageClass) {
+		BuffJsonGeneratedDecoder<Message> decoder = FAST_DECODERS.get(messageClass);
+		if (decoder == null) {
+			return null;
+		}
+		try {
+			// Generated readers index the array directly and may look at bytes past the
+			// end of a slice. A document that needed them ends beyond the slice, which
+			// finished() reports, and the general decoder then rules on it.
+			FastInput in = new FastInput(json, offset, length, latin1);
+			T message = (T) decoder.readFast(in);
+			return in.finished() ? message : null;
+		} catch (FastInput.Bail | IndexOutOfBoundsException bail) {
+			// a read past the end of the array is a truncated document
+			return null;
+		}
+	}
+
+	/**
+	 * The backing array of a Latin-1 coded {@code String}, or {@code null} if the
+	 * string is not Latin-1 coded (it may then hold surrogates the byte cursor must
+	 * not see as text) or fastjson2 cannot expose the array on this JVM.
+	 */
+	private static byte[] latin1Bytes(String json) {
+		var coder = JDKUtils.STRING_CODER;
+		var value = JDKUtils.STRING_VALUE;
+		if (coder != null && value != null && coder.applyAsInt(json) == JDKUtils.LATIN1) {
+			return value.apply(json);
+		}
+		return null;
 	}
 
 	@SuppressWarnings("unchecked")

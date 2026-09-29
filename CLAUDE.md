@@ -54,6 +54,21 @@ We handle: protobuf field extraction, proto3 JSON spec compliance, well-known ty
 fastjson2 handles: buffer pooling, number formatting, string escaping, UTF-8 encoding, Base64 encoding (`writeBase64(byte[])`).
 We handle: protobuf field extraction, proto3 JSON spec compliance, well-known types, epoch→calendar arithmetic for timestamps.
 
+## Decoding Paths
+
+`BuffJsonDecoder.decode(byte[] | String, Class)` tries, in order:
+
+```
+1. FAST PATH   generated readFast(FastInput)    # straight-line reader over the raw bytes, canonical JSON only
+                 -> anything else (escaped names, 1.0 for an int, unknown enum name, Struct/Any present, ...):
+                    throws a stackless Bail and the WHOLE document is re-read by 2. (results and errors are 2.'s)
+2. CODEGEN     generated readMessage(JSONReader)  # fastjson2 reader, byte-exact member-name dispatch, enum switch
+3. TYPED       TypedMessageReaderSchema           # MethodHandle builder setters (no generated decoder available)
+4. REFLECTION  FieldReader / MessageSchema        # descriptor-driven (DynamicMessage, or 3. failed to bind)
+```
+
+Paths 2-4 define the semantics; 1. is an optimization that must never change a result (differential tests: `BuffJsonFastPathTest`). Measured on JDK 25 (`docs/decode-performance-java25.md`): the fast path is +25% geometric mean over 2. on the benchmark shapes (up to +70% for small scalar-heavy messages), exact-name dispatch in 2. and 3. added ~+20% / ~+12% before that.
+
 ## Public API
 
 ```java
@@ -76,6 +91,9 @@ BuffJsonEncoder reflectionEncoder = BuffJson.encoder()
     .setGeneratedEncoders(false)
     .setTypedAccessors(false);
 
+// Decoder: force the general generated decoder (skip the canonical-input fast path)
+BuffJsonDecoder generalDecoder = BuffJson.decoder().setFastPath(false);
+
 // Mixed pojo + protobuf: register fastjson2 module from encoder/decoder
 JSONFactory.getDefaultObjectWriterProvider().register(encoder.writerModule());
 JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
@@ -83,7 +101,7 @@ JSONFactory.getDefaultObjectReaderProvider().register(decoder.readerModule());
 
 - `BuffJson` — static entry point + factory for `BuffJsonEncoder` and `BuffJsonDecoder`
 - `BuffJsonEncoder` — configurable encoder. Holds optional `TypeRegistry`, `useGeneratedEncoders`, `useTypedAccessors` flags, and a volatile cached `ProtobufMessageWriter` (invalidated on any setter). Creates `JSONWriter` directly (no fastjson2 module dispatch). Exposes `writerModule()` for fastjson2 registration.
-- `BuffJsonDecoder` — configurable decoder. Creates `JSONReader` directly. Exposes `readerModule()` for fastjson2 registration.
+- `BuffJsonDecoder` — configurable decoder. Creates `JSONReader` directly. Holds `useGeneratedDecoders`, `useTypedAccessors` and `useFastPath` (default true: try the generated canonical-input reader first). Exposes `readerModule()` for fastjson2 registration.
 - `BuffJsonGeneratedEncoder<T>` — interface implemented by protoc-plugin-generated encoders.
 - `BuffJsonGeneratedDecoder<T>` — interface implemented by protoc-plugin-generated decoders.
 - `BuffJsonCodecHolder` — interface injected into protobuf message classes via protoc insertion points. Provides `buffJsonEncoder()` and `buffJsonDecoder()` for codec discovery via `instanceof` — no ServiceLoader or reflection.

@@ -119,6 +119,8 @@ BuffJsonDecoder reflection = BuffJson.decoder()
 
 The typed decoder uses no runtime bytecode generation. Native images need reachability metadata for the application's protobuf classes and public builder methods. The [runtime performance analysis](docs/runtime-performance-analysis.md) records the initial native-image experiments and decoder optimization measurements.
 
+With the protoc plugin, `decode(byte[])` and `decode(String)` first try a generated *canonical-input reader*: a straight-line parser for plain proto3 JSON (any whitespace layout, camelCase or proto field names, canonical numbers and timestamps) that reads the raw bytes without a `JSONReader`. Anything it does not recognise with certainty — escaped member names, `1.0` for an integer, unknown enum names, `Any`/`Struct`/`Value`/`FieldMask` values, malformed input — makes it give up, and the whole document is decoded by the regular generated decoder, so results and errors are exactly the same. `BuffJson.decoder().setFastPath(false)` turns it off. See [decode performance on Java 25](docs/decode-performance-java25.md) for measurements.
+
 ### Mixed pojo + protobuf (fastjson2 registration)
 
 For projects that use `JSON.toJSONString()` with both POJOs and protobuf messages, register fastjson2 modules from the encoder/decoder:

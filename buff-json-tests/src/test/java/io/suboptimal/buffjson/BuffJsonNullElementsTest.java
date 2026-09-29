@@ -21,10 +21,10 @@ import io.suboptimal.buffjson.proto.TestNullElements;
 class BuffJsonNullElementsTest {
 
 	private static final List<BuffJsonDecoder> DECODERS = List.of(BuffJson.decoder(),
-			BuffJson.decoder().setGeneratedDecoders(false),
+			BuffJson.decoder().setFastPath(false), BuffJson.decoder().setGeneratedDecoders(false),
 			BuffJson.decoder().setGeneratedDecoders(false).setTypedAccessors(false));
 
-	private static final String[] NAMES = {"codegen", "typed builder", "reflection"};
+	private static final String[] NAMES = {"codegen (fast path)", "codegen (general)", "typed builder", "reflection"};
 
 	private static TestNullElements reference(String json) throws Exception {
 		TestNullElements.Builder builder = TestNullElements.newBuilder();

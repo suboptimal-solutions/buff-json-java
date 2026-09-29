@@ -24,7 +24,8 @@ Standard protoc plugin protocol: reads `CodeGeneratorRequest` from stdin, writes
 
 - `BuffJsonProtocPlugin.java` — main entry point, builds `FileDescriptor` graph, orchestrates generation
 - `EncoderGenerator.java` — generates one `*JsonEncoder` class per message type
-- `DecoderGenerator.java` — generates one `*JsonDecoder` class per message type
+- `DecoderGenerator.java` — generates one `*JsonDecoder` class per message type: `readMessage` (general decoder over a fastjson2 `JSONReader`) with byte-exact member-name dispatch (`fieldOrdinal` switches on `reader.getRawInt()` and confirms with `nextIfName4MatchN`; whatever it does not recognise falls to `readFieldName()` + `slowOrdinal`, so which field a name selects never depends on the fast route) and per-enum `String` switches (`enumNumber_<enum>`)
+- `FastDecoderGenerator.java` — appends the straight-line `readFast(FastInput)` to every generated decoder (see `buff-json` `Canonical-Input Fast Path`): a shell (member loop with local position `p`, `fastOrdinal` name matcher, null handling, separator logic), one small `f<k>(c, b, p, builder)` method per field, and `enumFast_<enum>` helpers that match enum names by length and bytes without creating a `String`. Value kinds without a fast reader (`Any`, `Struct`, `Value`, `ListValue`, `FieldMask`) make their field method `throw FastInput.bail()`. It only has to be correct for the input it accepts; anything else bails and the runtime re-runs `readMessage`. Names are matched for both the JSON name and the proto name via `FieldNameMatcher.inlineTest`
 - JSON Schema baking — `BuffJsonProtocPlugin.generateSchemaResources(...)` calls `ProtobufSchema.generateJson(descriptor)` (from `buff-json-schema`, a build-time dep) per message and writes the result to a `.json` resource. Comments come from `SourceCodeInfo` (present at build time) through `ProtobufSchema`; constraints from the `buf.validate` `ExtensionRegistry` wired in `buildValidateRegistry()` + `internalUpdateFileDescriptor`
 
 ## What Gets Generated
@@ -76,6 +77,8 @@ For each non-WKT, non-map-entry message type:
 - **Deprecated fields/types** — included in generated codecs. Both codec classes suppress Java deprecation warnings so generated calls compile with `-Werror`; protobuf deprecation does not change JSON semantics.
 - **Unsigned map keys** — uint32/fixed32 use `Integer.toUnsignedLong`; uint64/fixed64 use `WellKnownTypes.writeUnsignedLongString`. Keys always remain quoted JSON strings. Long-key writes share `FieldWriter.writeLongMapKey`, which preserves key spelling under BrowserCompatible and WriteClassName; boolean keys use constant strings.
 
+- **Name matching layout lives in one place** — `io.suboptimal.buffjson.internal.FieldNameMatcher` (in `buff-json`, which the plugin depends on) decides how a JSON name maps to `nextIfName4MatchN` arguments and emits the call (`javaCall`); the runtime `TypedMessageReaderSchema` executes the same layout (`match`). Names of 2..43 printable ASCII characters without quote/backslash get a matcher; others (and any JVM where `FieldNameMatcher.AVAILABLE` is false, i.e. fastjson2 lacks the methods) use the `readFieldName()` route only
+- **Map values that are `Value` / `NullValue`** — a JSON `null` map value is a value (`Value{null_value}` / `NULL_VALUE`), not an absent entry, so `generateMapFieldRead` does not blanket-skip it for those value types (other value types still skip)
 - **`google.protobuf.Empty`** is NOT in the WKT set — it serializes as a regular empty message `{}`
 - **`DynamicMessage`** cannot use generated encoders (would fail cast) — guarded in `ProtobufMessageWriter`
 - **Map entry types** (`options.map_entry = true`) are skipped — they're synthetic

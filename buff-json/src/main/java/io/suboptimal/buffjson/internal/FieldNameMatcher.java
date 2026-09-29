@@ -51,13 +51,15 @@ public final class FieldNameMatcher {
 	private static final int MAX_LENGTH = 43;
 
 	private final int length;
+	private final byte[] pattern;
 	private final int prefix;
 	private final long l0, l1, l2, l3, l4;
 	private final int i0;
 	private final byte b0;
 
-	private FieldNameMatcher(int length, int prefix, long[] longs, int i0, byte b0) {
+	private FieldNameMatcher(int length, byte[] pattern, int prefix, long[] longs, int i0, byte b0) {
 		this.length = length;
+		this.pattern = pattern;
 		this.prefix = prefix;
 		this.l0 = longs[0];
 		this.l1 = longs[1];
@@ -152,7 +154,61 @@ public final class FieldNameMatcher {
 			o += 4;
 		}
 		byte b0 = p.length - o == 3 ? p[o] : 0;
-		return new FieldNameMatcher(length, prefix, longs, i0, b0);
+		return new FieldNameMatcher(length, p, prefix, longs, i0, b0);
+	}
+
+	/**
+	 * Like {@link #of}, for matching done by this library's own cursor
+	 * ({@link #inlineTest}), which does not depend on fastjson2 offering the
+	 * {@code nextIfName4MatchN} family.
+	 */
+	public static FieldNameMatcher ofInline(String jsonName) {
+		return create(jsonName);
+	}
+
+	/** Number of bytes {@code "name":} occupies in the input. */
+	public int consumed() {
+		return length + 3;
+	}
+
+	/**
+	 * Java source of a boolean expression that is true iff the bytes at
+	 * {@code position} of {@code array} continue with the part of {@code "name":}
+	 * after the four prefix bytes -- which the caller has already compared as
+	 * {@link #prefix()} -- read with little-endian 8-byte, 4-byte and single-byte
+	 * comparisons. The array is the whole document, so reads past its end throw
+	 * {@code IndexOutOfBoundsException}, which the fast path treats as "not
+	 * canonical". Used by generated {@code fastOrdinal} methods.
+	 */
+	public String inlineTest(String array, String position) {
+		StringBuilder test = new StringBuilder();
+		int o = 4;
+		while (pattern.length - o >= 8) {
+			long v = 0;
+			for (int i = 7; i >= 0; i--) {
+				v = v << 8 | (pattern[o + i] & 0xffL);
+			}
+			and(test).append(String.format("io.suboptimal.buffjson.internal.FastInput.l8(%s, %s + %d) == 0x%016xL",
+					array, position, o, v));
+			o += 8;
+		}
+		if (pattern.length - o >= 4) {
+			int v = 0;
+			for (int i = 3; i >= 0; i--) {
+				v = v << 8 | (pattern[o + i] & 0xff);
+			}
+			and(test).append(String.format("io.suboptimal.buffjson.internal.FastInput.i4(%s, %s + %d) == 0x%08x", array,
+					position, o, v));
+			o += 4;
+		}
+		for (; o < pattern.length; o++) {
+			and(test).append(String.format("%s[%s + %d] == (byte) 0x%02x", array, position, o, pattern[o] & 0xff));
+		}
+		return test.toString();
+	}
+
+	private static StringBuilder and(StringBuilder test) {
+		return test.length() == 0 ? test : test.append(" && ");
 	}
 
 	/**
