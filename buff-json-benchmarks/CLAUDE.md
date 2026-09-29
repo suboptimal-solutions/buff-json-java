@@ -80,4 +80,6 @@ The `Performance` workflow compares exact base/head revisions on Java 21 and 25,
 
 ## Decoder before/after comparison
 
+`DecodeFastPathBenchmark` runs the same shapes (plus a string-heavy one) with the canonical-input fast path on and off (`fast` param) for three producer layouts (`compact`, `spaced` = blank after every colon/comma, `pretty` = multi-line); shapes holding `Struct`/`Any` measure the cost of a bail-out. `DecodeCeilingBenchmark` compares BuffJson with a hand-written cursor for `SimpleMessage` (what is left to win), `NumberReadBenchmark` isolates integer/double parsing, `DecodeOverheadBenchmark` the fixed per-call cost (reader creation, builder).
+
 `DecodePathsBenchmark` covers simple, all-scalar, complex, repeated, map, timestamp, Struct, deep nesting and Any messages with both String and UTF-8 input. `generated=false` exercises the runtime decoder. Setup checks all 1,024 seeded fixtures against the expected messages in both input formats. The benchmark uses pre-existing public APIs so its exact compiled classes can run against an untouched baseline jar and an optimized jar. See `docs/runtime-performance-analysis.md` for the earlier prototype measurements and reproduction artifacts.
