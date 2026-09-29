@@ -162,6 +162,12 @@ message TestStruct {
     google.protobuf.ListValue list_value = 3;
 }
 
+// Repeated google.protobuf.NullValue: a JSON null element is a value (NULL_VALUE),
+// not an absent element. Exercises the generated decoder's null-element branch.
+message TestRepeatedNullValue {
+    repeated google.protobuf.NullValue values = 1;
+}
+
 // Proto3 explicit presence (optional keyword)
 message TestOptionalFields {
     optional int32 optional_int32 = 1;

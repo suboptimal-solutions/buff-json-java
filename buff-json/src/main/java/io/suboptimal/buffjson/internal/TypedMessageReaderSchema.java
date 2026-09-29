@@ -150,11 +150,15 @@ public final class TypedMessageReaderSchema {
 			return scalar;
 		}
 		String fieldName = fd.getFullName();
+		// Null elements are skipped, except for Value/NullValue, where null is a value.
+		Object nullElement = FieldReader.nullValueFor(fd);
 		return (r, b, mr) -> {
 			FieldReader.requireArrayStart(r, "repeated field", fieldName);
 			while (!r.nextIfArrayEnd()) {
 				if (!r.nextIfNull()) {
 					scalar.read(r, b, mr);
+				} else if (nullElement != null) {
+					b.addRepeatedField(fd, nullElement);
 				}
 			}
 		};

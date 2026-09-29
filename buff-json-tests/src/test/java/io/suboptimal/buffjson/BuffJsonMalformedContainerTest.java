@@ -33,8 +33,10 @@ import io.suboptimal.buffjson.proto.TestNesting;
  * same token forever, appending empty messages until {@code OutOfMemoryError}
  * (for example {@code {"repeatedNested":[1]}} on every decode path, or
  * {@code {"repeatedNested":[null]}} on the codegen path). Every case runs on
- * all three decode paths under a timeout, so a regression fails fast instead of
- * exhausting the heap.
+ * all three decode paths under a timeout, so a regression is reported as a
+ * failure at the timeout rather than a hung build. The timed-out decode thread
+ * cannot be stopped (the loop never checks for interruption), so after such a
+ * failure the forked test JVM may still run out of memory.
  */
 class BuffJsonMalformedContainerTest {
 
@@ -212,6 +214,98 @@ class BuffJsonMalformedContainerTest {
 	@MethodSource
 	void nullRepeatedMessageElements(String path, BuffJsonDecoder decoder, Class<? extends Message> type, String json) {
 		assertTerminates(decoder, type, json);
+	}
+
+	static Stream<Arguments> nullRepeatedScalarAndWktElements() {
+		return Stream.of("{\"repeatedTimestamp\":[null]}", "{\"repeatedDuration\":[null]}",
+				"{\"repeatedFieldmask\":[null]}", "{\"repeatedStringWrapper\":[null]}",
+				"{\"repeatedBytesWrapper\":[null]}", "{\"repeatedInt32Wrapper\":[null]}", "{\"repeatedInt64\":[null]}",
+				"{\"repeatedUint64\":[null]}", "{\"repeatedBool\":[null]}", "{\"repeatedDouble\":[null]}",
+				"{\"repeatedNestedEnum\":[null]}", "{\"repeatedInt32\":[1,null]}").map(Arguments::of);
+	}
+
+	/**
+	 * Codegen rejects a null element with a {@link JSONException} for every type
+	 * but Value/NullValue: it used to NPE for Timestamp/Duration/FieldMask/
+	 * String/BytesValue and add a phantom default element for int64/bool/enum/...
+	 * The runtime paths skip it (either way no default element is added).
+	 */
+	@ParameterizedTest
+	@MethodSource
+	void nullRepeatedScalarAndWktElements(String json) {
+		var paths = paths();
+		assertRejected(paths.get("codegen"), TestAllTypesProto3.class, json);
+		TestAllTypesProto3 expected = json.startsWith("{\"repeatedInt32\":")
+				? TestAllTypesProto3.newBuilder().addRepeatedInt32(1).build()
+				: TestAllTypesProto3.getDefaultInstance();
+		for (String runtime : List.of("typed", "reflection")) {
+			BuffJsonDecoder decoder = paths.get(runtime);
+			assertEquals(expected,
+					assertTimeoutPreemptively(TIMEOUT, () -> decoder.decode(json, TestAllTypesProto3.class)),
+					runtime + ": " + json);
+		}
+	}
+
+	@Test
+	void nullRepeatedValueElementsArePreservedOnEveryPath() throws Exception {
+		var expected = TestAllTypesProto3.newBuilder()
+				.addRepeatedValue(
+						com.google.protobuf.Value.newBuilder().setNullValue(com.google.protobuf.NullValue.NULL_VALUE))
+				.addRepeatedValue(com.google.protobuf.Value.newBuilder().setNumberValue(1)).build();
+		String json = "{\"repeatedValue\":[null,1]}";
+		var reference = TestAllTypesProto3.newBuilder();
+		com.google.protobuf.util.JsonFormat.parser().merge(json, reference);
+		assertEquals(expected, reference.build());
+		for (var path : paths().entrySet()) {
+			assertEquals(expected, path.getValue().decode(json, TestAllTypesProto3.class), path.getKey());
+			assertEquals(expected,
+					path.getValue().decode(BuffJson.encoder().encode(expected), TestAllTypesProto3.class),
+					path.getKey() + " round trip");
+		}
+	}
+
+	@Test
+	void nullRepeatedNullValueElementsArePreservedOnEveryPath() throws Exception {
+		var expected = io.suboptimal.buffjson.proto.TestRepeatedNullValue.newBuilder()
+				.addValues(com.google.protobuf.NullValue.NULL_VALUE).addValues(com.google.protobuf.NullValue.NULL_VALUE)
+				.build();
+		String json = "{\"values\":[null,null]}";
+		var reference = io.suboptimal.buffjson.proto.TestRepeatedNullValue.newBuilder();
+		com.google.protobuf.util.JsonFormat.parser().merge(json, reference);
+		assertEquals(expected, reference.build());
+		for (var path : paths().entrySet()) {
+			assertEquals(expected,
+					path.getValue().decode(json, io.suboptimal.buffjson.proto.TestRepeatedNullValue.class),
+					path.getKey());
+			assertEquals(expected, path.getValue().decode(BuffJson.encoder().encode(expected),
+					io.suboptimal.buffjson.proto.TestRepeatedNullValue.class), path.getKey() + " round trip");
+		}
+	}
+
+	/**
+	 * Empty input decodes to {@code null} from every overload, instead of failing
+	 * the new object-start check (an empty {@code InputStream} or whitespace-only
+	 * body used to decode to an empty message).
+	 */
+	@Test
+	void emptyInputDecodesToNullFromEveryOverload() {
+		byte[] blank = "  \n ".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		for (var path : paths().entrySet()) {
+			BuffJsonDecoder decoder = path.getValue();
+			assertNull(decoder.decode("", TestNesting.class), path.getKey());
+			assertNull(decoder.decode("  \n ", TestNesting.class), path.getKey());
+			assertNull(decoder.decode(new byte[0], TestNesting.class), path.getKey());
+			assertNull(decoder.decode(blank, TestNesting.class), path.getKey());
+			assertNull(decoder.decode("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8), 1, 0, TestNesting.class),
+					path.getKey());
+			assertNull(decoder.decode(new java.io.ByteArrayInputStream(new byte[0]), TestNesting.class), path.getKey());
+			assertNull(decoder.decode(new java.io.ByteArrayInputStream(blank), TestNesting.class), path.getKey());
+			assertEquals(TestNesting.getDefaultInstance(),
+					decoder.decode(
+							new java.io.ByteArrayInputStream("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+							TestNesting.class),
+					path.getKey());
+		}
 	}
 
 	// =========================================================================

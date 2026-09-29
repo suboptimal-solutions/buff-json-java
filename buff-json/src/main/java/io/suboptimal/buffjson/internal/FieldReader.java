@@ -36,6 +36,9 @@ public final class FieldReader {
 
 	public static final Base64.Decoder BASE64 = Base64.getDecoder();
 
+	private static final com.google.protobuf.Value NULL_JSON_VALUE = com.google.protobuf.Value.newBuilder()
+			.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build();
+
 	private FieldReader() {
 	}
 
@@ -341,13 +344,49 @@ public final class FieldReader {
 	}
 
 	/**
-	 * Reads a repeated field as a JSON array, adding each element to the builder.
+	 * Rejects a JSON {@code null} repeated-field element with a
+	 * {@link JSONException} (proto3 JSON only allows {@code null} elements for
+	 * {@code google.protobuf.Value} and {@code google.protobuf.NullValue}). Public
+	 * so generated decoders (in other packages) share the same check and message.
+	 */
+	public static void requireNonNullElement(JSONReader reader, String name) {
+		if (reader.nextIfNull()) {
+			throw new JSONException(reader.info("Repeated field elements cannot be null: " + name));
+		}
+	}
+
+	/**
+	 * The value a JSON {@code null} denotes for {@code fd}: a wrapped
+	 * {@code NullValue} for {@code google.protobuf.Value}, {@code NULL_VALUE} for
+	 * {@code google.protobuf.NullValue}, or {@code null} for every other type
+	 * (where JSON {@code null} means "absent").
+	 */
+	static Object nullValueFor(FieldDescriptor fd) {
+		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
+			return NULL_JSON_VALUE;
+		}
+		if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
+				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
+			return fd.getEnumType().findValueByNumber(0);
+		}
+		return null;
+	}
+
+	/**
+	 * Reads a repeated field as a JSON array, adding each element to the builder. A
+	 * {@code null} element is skipped, except for {@code Value}/{@code NullValue}
+	 * elements, where it is a value ({@link #nullValueFor}).
 	 */
 	public static void readRepeated(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
 			ProtobufMessageReader msgReader) {
 		requireArrayStart(reader, "repeated field", fd.getFullName());
+		Object nullElement = nullValueFor(fd);
 		while (!reader.nextIfArrayEnd()) {
 			if (reader.nextIfNull()) {
+				if (nullElement != null) {
+					builder.addRepeatedField(fd, nullElement);
+				}
 				continue;
 			}
 			Object value = readValue(reader, builder, fd, msgReader);

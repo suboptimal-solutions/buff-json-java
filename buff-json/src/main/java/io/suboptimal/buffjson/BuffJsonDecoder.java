@@ -113,6 +113,9 @@ public final class BuffJsonDecoder {
 	 * Decodes a UTF-8 JSON byte array to a Protocol Buffer message.
 	 */
 	public <T extends Message> T decode(byte[] json, Class<T> messageClass) {
+		if (json == null || json.length == 0) {
+			return null;
+		}
 		try (JSONReader reader = JSONReader.of(json)) {
 			return readProto(reader, messageClass);
 		}
@@ -123,6 +126,9 @@ public final class BuffJsonDecoder {
 	 * — FastJson2 reads directly from the provided array.
 	 */
 	public <T extends Message> T decode(byte[] json, int offset, int length, Class<T> messageClass) {
+		if (json == null || length == 0) {
+			return null;
+		}
 		try (JSONReader reader = JSONReader.of(json, offset, length)) {
 			return readProto(reader, messageClass);
 		}
@@ -152,12 +158,18 @@ public final class BuffJsonDecoder {
 
 	@SuppressWarnings("unchecked")
 	private <T extends Message> T readProto(JSONReader reader, Class<T> messageClass) {
+		if (reader.isEnd()) {
+			// Empty or whitespace-only input from any overload (String, byte[], slice,
+			// InputStream) decodes to null, like the empty-String short-circuit, instead of
+			// failing the message's object-start check.
+			return null;
+		}
 		if (reader.nextIfNull()) {
 			// proto3 JSON: a message is never representable as a bare top-level `null`
 			// (null is only a field value meaning "absent", or a wrapped NullValue), so
-			// reject it rather than returning a null Message. Empty input (a null/empty
-			// Java string/byte[]) is short-circuited by the public decode methods and is a
-			// separate, lenient convenience — only the literal `null` reaches here.
+			// reject it rather than returning a null Message. Empty input is handled above
+			// and is a separate, lenient convenience — only the literal `null` reaches
+			// here.
 			throw new JSONException(reader.info("Top-level null is not a valid proto3 JSON message"));
 		}
 		Message defaultInstance = ProtobufMessageReader.getDefaultInstance(messageClass);
