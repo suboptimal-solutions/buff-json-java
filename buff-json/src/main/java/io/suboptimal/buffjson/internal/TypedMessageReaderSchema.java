@@ -149,11 +149,16 @@ public final class TypedMessageReaderSchema {
 		if (!fd.isRepeated()) {
 			return scalar;
 		}
+		String fieldName = fd.getFullName();
+		// Null elements are skipped, except for Value/NullValue, where null is a value.
+		Object nullElement = FieldReader.nullValueFor(fd);
 		return (r, b, mr) -> {
-			r.nextIfArrayStart();
+			FieldReader.requireArrayStart(r, "repeated field", fieldName);
 			while (!r.nextIfArrayEnd()) {
 				if (!r.nextIfNull()) {
 					scalar.read(r, b, mr);
+				} else if (nullElement != null) {
+					b.addRepeatedField(fd, nullElement);
 				}
 			}
 		};
@@ -175,15 +180,20 @@ public final class TypedMessageReaderSchema {
 				: valueFd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
 						? ProtobufMessageReader.getDefaultInstance(valueClass)
 						: FieldReader.getDefaultMapValue(valueFd);
+		// A null Value map value is a wrapped NullValue; for NullValue maps the
+		// default (0) already is NULL_VALUE, and the enum setter takes the number.
+		Object nullJsonValue = enumValue ? null : FieldReader.nullValueFor(valueFd);
+		Object nullValue = nullJsonValue != null ? nullJsonValue : defaultValue;
+		String fieldName = fd.getFullName();
 		return (r, b, mr) -> {
-			r.nextIfObjectStart();
+			FieldReader.requireObjectStart(r, "map field", fieldName);
 			while (!r.nextIfObjectEnd()) {
 				String keyText = r.readFieldName();
 				if (keyText == null) {
 					break;
 				}
 				Object key = FieldReader.parseMapKey(r, keyText, keyFd);
-				Object value = r.nextIfNull() ? defaultValue : parser.read(r, mr);
+				Object value = r.nextIfNull() ? nullValue : parser.read(r, mr);
 				setter.invokeExact(b, key, value);
 			}
 		};

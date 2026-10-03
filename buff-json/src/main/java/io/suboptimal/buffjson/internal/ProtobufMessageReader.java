@@ -123,8 +123,8 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 * descriptor/builder fallback.
 	 */
 	Message readMessageRuntime(JSONReader reader, Descriptor descriptor, Message defaultInstance) {
+		FieldReader.requireObjectStart(reader, "message", descriptor.getFullName());
 		Message.Builder builder = defaultInstance.newBuilderForType();
-		reader.nextIfObjectStart();
 		readRuntimeFields(reader, builder, descriptor);
 		return builder.build();
 	}
@@ -135,18 +135,19 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 	 */
 	Message readMessage(JSONReader reader, Message.Builder builder) {
 		Message defaultInstance = builder.getDefaultInstanceForType();
+		Descriptor descriptor = builder.getDescriptorForType();
 		if (useGenerated) {
 			// Preserve discovery and descriptor-cache dispatch for mixed codec graphs.
 			if (defaultInstance instanceof BuffJsonCodecHolder) {
-				return readMessage(reader, builder.getDescriptorForType(), defaultInstance);
+				return readMessage(reader, descriptor, defaultInstance);
 			}
-			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(builder.getDescriptorForType());
+			BuffJsonGeneratedDecoder<Message> decoder = GeneratedDecoderRegistry.get(descriptor);
 			if (decoder != null) {
 				return decoder.readMessage(reader, this);
 			}
 		}
-		reader.nextIfObjectStart();
-		readRuntimeFields(reader, builder, builder.getDescriptorForType());
+		FieldReader.requireObjectStart(reader, "message", descriptor.getFullName());
+		readRuntimeFields(reader, builder, descriptor);
 		return builder.build();
 	}
 
@@ -215,13 +216,9 @@ public final class ProtobufMessageReader implements ObjectReader<Message> {
 		if (fd.isRepeated()) {
 			return;
 		}
-		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
-				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
-			builder.setField(fd, com.google.protobuf.Value.newBuilder()
-					.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build());
-		} else if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
-				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
-			builder.setField(fd, fd.getEnumType().findValueByNumber(0));
+		Object value = FieldReader.nullValueFor(fd);
+		if (value != null) {
+			builder.setField(fd, value);
 		}
 	}
 
