@@ -16,6 +16,7 @@ final class DecoderGenerator {
 
 	private static final Set<String> WELL_KNOWN_TYPES = BuffJsonProtocPlugin.WELL_KNOWN_TYPES;
 	private static final String FIELD_READER = "io.suboptimal.buffjson.internal.FieldReader";
+	private static final String WELL_KNOWN_TYPES_CLASS = "io.suboptimal.buffjson.internal.WellKnownTypes";
 
 	private DecoderGenerator() {
 	}
@@ -183,10 +184,19 @@ final class DecoderGenerator {
 		sb.append(indent).append("    while (!reader.nextIfObjectEnd()) {\n");
 		sb.append(indent).append("        String keyStr = reader.readFieldName();\n");
 		sb.append(indent).append("        if (keyStr == null) break;\n");
-		sb.append(indent).append("        if (reader.nextIfNull()) continue;\n");
 
 		String keyExpr = mapKeyExpr(keyFd);
 		String mapTarget = putter + "(" + keyExpr + ", ";
+
+		// proto3 JSON: a null map value is a value for Value (a wrapped NullValue,
+		// which readJsonValue produces itself) and for NullValue (NULL_VALUE), as in
+		// JsonFormat and as the encoder writes them. Other null values are skipped.
+		if (isNullValueField(valueFd)) {
+			sb.append(indent).append("        if (reader.nextIfNull()) { ").append(putter).append("Value(")
+					.append(keyExpr).append(", 0); continue; }\n");
+		} else if (!isValueField(valueFd)) {
+			sb.append(indent).append("        if (reader.nextIfNull()) continue;\n");
+		}
 
 		if (valueFd.getJavaType() == FieldDescriptor.JavaType.ENUM) {
 			// Enum maps use putXxxValue(key, int) for unrecognized enum support
@@ -281,25 +291,20 @@ final class DecoderGenerator {
 
 		String fullName = fd.getMessageType().getFullName();
 		if ("google.protobuf.Timestamp".equals(fullName)) {
-			sb.append(indent).append(prefix)
-					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readTimestamp(reader)").append(closeSuffix)
-					.append(");\n");
+			sb.append(indent).append(prefix).append("(" + WELL_KNOWN_TYPES_CLASS + ".readTimestamp(reader)")
+					.append(closeSuffix).append(");\n");
 		} else if ("google.protobuf.Duration".equals(fullName)) {
-			sb.append(indent).append(prefix)
-					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readDuration(reader)").append(closeSuffix)
-					.append(");\n");
+			sb.append(indent).append(prefix).append("(" + WELL_KNOWN_TYPES_CLASS + ".readDuration(reader)")
+					.append(closeSuffix).append(");\n");
 		} else if ("google.protobuf.Struct".equals(fullName)) {
-			sb.append(indent).append(prefix)
-					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readStruct(reader)").append(closeSuffix)
-					.append(");\n");
+			sb.append(indent).append(prefix).append("(" + WELL_KNOWN_TYPES_CLASS + ".readStruct(reader)")
+					.append(closeSuffix).append(");\n");
 		} else if ("google.protobuf.Value".equals(fullName)) {
-			sb.append(indent).append(prefix)
-					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readJsonValue(reader)").append(closeSuffix)
-					.append(");\n");
+			sb.append(indent).append(prefix).append("(" + WELL_KNOWN_TYPES_CLASS + ".readJsonValue(reader)")
+					.append(closeSuffix).append(");\n");
 		} else if ("google.protobuf.ListValue".equals(fullName)) {
-			sb.append(indent).append(prefix)
-					.append("(io.suboptimal.buffjson.internal.WellKnownTypes.readListValue(reader)").append(closeSuffix)
-					.append(");\n");
+			sb.append(indent).append(prefix).append("(" + WELL_KNOWN_TYPES_CLASS + ".readListValue(reader)")
+					.append(closeSuffix).append(");\n");
 		} else if ("google.protobuf.Empty".equals(fullName)) {
 			sb.append(indent).append(FIELD_READER)
 					.append(".requireObjectStart(reader, \"message\", \"google.protobuf.Empty\");\n");
@@ -312,7 +317,7 @@ final class DecoderGenerator {
 		} else if (WELL_KNOWN_TYPES.contains(fullName)) {
 			String msgJavaClass = protoToJavaClass.get(fullName);
 			sb.append(indent).append(prefix).append("((").append(msgJavaClass)
-					.append(") io.suboptimal.buffjson.internal.WellKnownTypes.readWkt(reader, ").append(msgJavaClass)
+					.append(") " + WELL_KNOWN_TYPES_CLASS + ".readWkt(reader, ").append(msgJavaClass)
 					.append(".getDescriptor(), msgReader)").append(closeSuffix).append(");\n");
 		} else {
 			String decoderClass = protoToDecoderClass.get(fullName);

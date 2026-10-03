@@ -628,6 +628,12 @@ public final class WellKnownTypes {
 	 */
 	private static final int MAX_RECURSION_DEPTH = 100;
 
+	/**
+	 * The {@code google.protobuf.Value} a JSON {@code null} denotes. Immutable, so
+	 * shared by every reader (Value elements, fields, map values, packed Any).
+	 */
+	static final Value NULL_JSON_VALUE = Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+
 	private static void checkDepth(JSONReader reader, int depth) {
 		if (depth > MAX_RECURSION_DEPTH) {
 			throw new JSONException(reader.info("JSON nesting depth exceeds " + MAX_RECURSION_DEPTH));
@@ -822,7 +828,7 @@ public final class WellKnownTypes {
 
 	private static Value readJsonValueImpl(JSONReader reader, int depth) {
 		if (reader.nextIfNull()) {
-			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+			return NULL_JSON_VALUE;
 		}
 		if (reader.isString()) {
 			return Value.newBuilder().setStringValue(reader.readString()).build();
@@ -998,7 +1004,7 @@ public final class WellKnownTypes {
 	 */
 	private static Message nullPackedWktValue(Descriptor type) {
 		if ("google.protobuf.Value".equals(type.getFullName())) {
-			return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+			return NULL_JSON_VALUE;
 		}
 		return DynamicMessage.getDefaultInstance(type);
 	}

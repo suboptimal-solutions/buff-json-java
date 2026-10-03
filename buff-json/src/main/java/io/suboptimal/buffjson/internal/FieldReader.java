@@ -36,9 +36,6 @@ public final class FieldReader {
 
 	public static final Base64.Decoder BASE64 = Base64.getDecoder();
 
-	private static final com.google.protobuf.Value NULL_JSON_VALUE = com.google.protobuf.Value.newBuilder()
-			.setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build();
-
 	private FieldReader() {
 	}
 
@@ -364,7 +361,7 @@ public final class FieldReader {
 	static Object nullValueFor(FieldDescriptor fd) {
 		if (fd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
 				&& "google.protobuf.Value".equals(fd.getMessageType().getFullName())) {
-			return NULL_JSON_VALUE;
+			return WellKnownTypes.NULL_JSON_VALUE;
 		}
 		if (fd.getJavaType() == FieldDescriptor.JavaType.ENUM
 				&& "google.protobuf.NullValue".equals(fd.getEnumType().getFullName())) {
@@ -395,7 +392,9 @@ public final class FieldReader {
 	}
 
 	/**
-	 * Reads a map field as a JSON object, adding entries to the builder.
+	 * Reads a map field as a JSON object, adding entries to the builder. A
+	 * {@code null} value is a value for {@code Value}/{@code NullValue} map values
+	 * ({@link #nullValueFor}), and the value type's default otherwise.
 	 */
 	public static void readMap(JSONReader reader, Message.Builder builder, FieldDescriptor fd,
 			ProtobufMessageReader msgReader) {
@@ -415,7 +414,8 @@ public final class FieldReader {
 			Message.Builder entryBuilder = builder.newBuilderForField(fd);
 			Object value;
 			if (reader.nextIfNull()) {
-				value = getDefaultMapValue(valueFd);
+				Object nullValue = nullValueFor(valueFd);
+				value = nullValue != null ? nullValue : getDefaultMapValue(valueFd);
 			} else {
 				value = readValue(reader, entryBuilder, valueFd, msgReader);
 			}

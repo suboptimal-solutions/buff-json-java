@@ -282,6 +282,25 @@ class BuffJsonMalformedContainerTest {
 		}
 	}
 
+	@Test
+	void nullMapValuesOfValueAndNullValueArePreservedOnEveryPath() throws Exception {
+		var nullValue = com.google.protobuf.Value.newBuilder().setNullValue(com.google.protobuf.NullValue.NULL_VALUE)
+				.build();
+		var expected = io.suboptimal.buffjson.proto.TestNullMapValues.newBuilder().putValues("a", nullValue)
+				.putValues("b", com.google.protobuf.Value.newBuilder().setNumberValue(1).build())
+				.putNulls("c", com.google.protobuf.NullValue.NULL_VALUE).build();
+		String json = "{\"values\":{\"a\":null,\"b\":1},\"nulls\":{\"c\":null}}";
+		var reference = io.suboptimal.buffjson.proto.TestNullMapValues.newBuilder();
+		com.google.protobuf.util.JsonFormat.parser().merge(json, reference);
+		assertEquals(expected, reference.build());
+		for (var path : paths().entrySet()) {
+			assertEquals(expected, path.getValue().decode(json, io.suboptimal.buffjson.proto.TestNullMapValues.class),
+					path.getKey());
+			assertEquals(expected, path.getValue().decode(BuffJson.encoder().encode(expected),
+					io.suboptimal.buffjson.proto.TestNullMapValues.class), path.getKey() + " round trip");
+		}
+	}
+
 	/**
 	 * Empty input decodes to {@code null} from every overload, instead of failing
 	 * the new object-start check (an empty {@code InputStream} or whitespace-only

@@ -24,6 +24,14 @@ import io.suboptimal.buffjson.internal.ProtobufReaderModule;
  * MyMessage msg = decoder.decode(inputStream, MyMessage.class);
  * }</pre>
  *
+ * <h2>Empty input</h2>
+ *
+ * The {@code decode} overloads return {@code null} (not a default message) for
+ * empty input: a {@code null} or empty {@code String} or {@code byte[]}, a
+ * zero-length slice, whitespace-only text, or an empty {@link InputStream}. A
+ * literal JSON {@code null} is rejected with a {@link JSONException}, as is any
+ * other non-object value.
+ *
  * <h2>Thread-safety</h2>
  *
  * Once configured, a decoder is safe to share across threads: each

@@ -180,6 +180,10 @@ public final class TypedMessageReaderSchema {
 				: valueFd.getJavaType() == FieldDescriptor.JavaType.MESSAGE
 						? ProtobufMessageReader.getDefaultInstance(valueClass)
 						: FieldReader.getDefaultMapValue(valueFd);
+		// A null Value map value is a wrapped NullValue; for NullValue maps the
+		// default (0) already is NULL_VALUE, and the enum setter takes the number.
+		Object nullJsonValue = enumValue ? null : FieldReader.nullValueFor(valueFd);
+		Object nullValue = nullJsonValue != null ? nullJsonValue : defaultValue;
 		String fieldName = fd.getFullName();
 		return (r, b, mr) -> {
 			FieldReader.requireObjectStart(r, "map field", fieldName);
@@ -189,7 +193,7 @@ public final class TypedMessageReaderSchema {
 					break;
 				}
 				Object key = FieldReader.parseMapKey(r, keyText, keyFd);
-				Object value = r.nextIfNull() ? defaultValue : parser.read(r, mr);
+				Object value = r.nextIfNull() ? nullValue : parser.read(r, mr);
 				setter.invokeExact(b, key, value);
 			}
 		};
